@@ -4,6 +4,8 @@ const endBtn = document.querySelector('#end-capture');
 const video = document.querySelector('#video');
 /** @type {HTMLAnchorElement} */
 const downloadButton = document.querySelector('#downloadButton');
+/** @type {HTMLInputElement} */
+const audioCheckbox = document.querySelector('#audioCheckbox');
 let stream = null;
 let recorder = null;
 
@@ -19,6 +21,7 @@ startBtn.addEventListener('click', async (e) => {
           cursor: 'always',
           logicalSurface: true,
         },
+        audio: audioCheckbox.checked
       });
 
       downloadButton.hidden = true;

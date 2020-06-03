@@ -11,12 +11,17 @@
     </style>
 </head>
 <body>
-    <button id="start-capture">start capture</button>
-    <button id="end-capture">end capture</button>
-
+    <div>
+        <button id="start-capture">start capture</button>
+        <button id="end-capture">end capture</button>
+        <br>
+        <label for="audioCheckbox">
+            <input type="checkbox" name="" id="audioCheckbox">
+            with audio (experimental)
+        </label>
+    </div>
     <br>
-    <video class="video" id="video" autoplay></video>
-
+    <video class="video" id="video" autoplay muted></video>
     <br>
     <a id="downloadButton" hidden class="button">
         Download
