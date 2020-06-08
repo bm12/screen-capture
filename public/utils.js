@@ -25,7 +25,7 @@ export const getSourseAndGain = (context, stream) => {
 export const setGainAndConnectSource = (gainNode, source, audioDestination, gainValue = 1) => {
   gainNode.gain.value = gainValue;
   source.connect(gainNode).connect(audioDestination);
-}
+};
 
 export const getAnalyzer = (context) => {
   const analyser = context.createAnalyser();
@@ -43,7 +43,7 @@ export const getDisplayMedia = (audio) => {
     },
     audio,
   });
-}
+};
 
 export const getUserMedia = () => {
   return navigator.mediaDevices.getUserMedia({
@@ -52,4 +52,4 @@ export const getUserMedia = () => {
       noiseSuppression: true,
     }
   })
-}
+};
