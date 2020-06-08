@@ -23,7 +23,7 @@ export const getSourseAndGain = (context, stream) => {
 };
 
 export const setGainAndConnectSource = (gainNode, source, audioDestination, gainValue = 1) => {
-  gainNode.gain.value = 1.0;
+  gainNode.gain.value = gainValue;
   source.connect(gainNode).connect(audioDestination);
 }
 
