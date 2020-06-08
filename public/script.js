@@ -1,3 +1,13 @@
+import {
+  getAnalyzer,
+  getAverageVolume,
+  getCapturedStream,
+  getDisplayMedia,
+  getSourseAndGain,
+  getUserMedia,
+  setGainAndConnectSource
+} from './utils.js';
+
 const startBtn = document.querySelector('#start-capture');
 const endBtn = document.querySelector('#end-capture');
 /** @type {HTMLVideoElement} */
@@ -9,45 +19,18 @@ const audioCheckbox = document.querySelector('#audioCheckbox');
 /** @type {HTMLInputElement} */
 const microCheckbox = document.querySelector('#microCheckbox');
 let stream = null;
+let micStream = null;
 let recorder = null;
-let stopGainAnylizer = true;
+let stopGainAnalyzer = true;
 
+const mimeType = 'video/webm';
 const USE_CAPTURED_STREAM = false;
-
-
-const getCapturedStream = (video) => (video.captureStream || video.mozCaptureStream)();
-
-const getAverageVolume = (analyser) => {
-  const array = new Uint8Array(analyser.frequencyBinCount);
-  analyser.getByteFrequencyData(array);
-  let values = 0;
-
-  const length = array.length;
-  for (var i = 0; i < length; i++) {
-    values += (array[i]);
-  }
-
-  const average = values / length;
-
-  return average;
-};
 
 startBtn.addEventListener('click', async () => {
   try {
-    stream = await navigator.mediaDevices.getDisplayMedia({
-      video: {
-        cursor: 'always',
-        logicalSurface: true,
-      },
-      audio: audioCheckbox.checked
-    });
+    stream = await getDisplayMedia(audioCheckbox.checked);
     micStream = microCheckbox.checked ?
-      await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-        }
-      }) :
+      await getUserMedia() :
       null;
 
     downloadButton.hidden = true;
@@ -64,20 +47,14 @@ startBtn.addEventListener('click', async () => {
       const context = new AudioContext();
       const audioDestination = context.createMediaStreamDestination();
 
-      const systemSource = context.createMediaStreamSource(capturedStream);
-      const systemGain = context.createGain();
-      systemGain.gain.value = 1.0;
-      systemSource.connect(systemGain).connect(audioDestination);
+      const [systemSource, systemGain] = getSourseAndGain(context, capturedStream);
+      setGainAndConnectSource(systemGain, systemSource, audioDestination);
 
       if (micStream && micStream.getAudioTracks().length > 0) {
-        const micSource = context.createMediaStreamSource(micStream);
-        const micGain = context.createGain();
-        micGain.gain.value = 1;
-        micSource.connect(micGain).connect(audioDestination);
+        const [micSource, micGain] = getSourseAndGain(context, micStream);
+        setGainAndConnectSource(micGain, micSource, audioDestination);
 
-        analyser = context.createAnalyser();
-        analyser.smoothingTimeConstant = 0.8;
-        analyser.fftSize = 1024;
+        const analyser = getAnalyzer(context);
 
         micSource.connect(analyser);
         function listenMicroVolume() {
@@ -90,9 +67,9 @@ startBtn.addEventListener('click', async () => {
             systemGain.gain.setTargetAtTime(1, context.currentTime, 50);
           }
 
-          if (!stopGainAnylizer) requestAnimationFrame(listenMicroVolume);
+          if (!stopGainAnalyzer) requestAnimationFrame(listenMicroVolume);
         }
-        stopGainAnylizer = false;
+        stopGainAnalyzer = false;
         listenMicroVolume();
       }
 
@@ -110,15 +87,14 @@ startBtn.addEventListener('click', async () => {
 
     video.srcObject = stream;
 
-    recorder = new MediaRecorder(composedStream, {
-      mimeType: 'video/webm'
-    });
+    recorder = new MediaRecorder(composedStream, { mimeType });
+
     let data = [];
 
     recorder.ondataavailable = event => data.push(event.data);
     recorder.start();
     recorder.onstop = () => {
-      const recordedBlob = new Blob(data, { type: 'video/webm' });
+      const recordedBlob = new Blob(data, { type: mimeType });
       const today = new Date();
       const fileName = `captured-${today.toDateString()}-${today.toTimeString().substr(0, 17).replace(':', '-')}.webm`;
 
@@ -135,7 +111,8 @@ startBtn.addEventListener('click', async () => {
 
 endBtn.addEventListener('click', () => {
   stream.getTracks().forEach(t => t.stop());
+  micStream.getTracks().forEach(t => t.stop());
   recorder.stop();
-  stopGainAnylizer = true;
+  stopGainAnalyzer = true;
   video.srcObject = null;
 });
