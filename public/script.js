@@ -5,23 +5,30 @@ import {
   getDisplayMedia,
   getSourseAndGain,
   getUserMedia,
-  setGainAndConnectSource
+  setGainAndConnectSource,
+  getCameraImageSizes
 } from './utils.js';
 
 const startBtn = document.querySelector('#start-capture');
 const endBtn = document.querySelector('#end-capture');
 /** @type {HTMLVideoElement} */
 const video = document.querySelector('#video');
+/** @type {HTMLVideoElement} */
+const cameraVideo = document.querySelector('#cameraVideo');
 /** @type {HTMLAnchorElement} */
 const downloadButton = document.querySelector('#downloadButton');
 /** @type {HTMLInputElement} */
 const audioCheckbox = document.querySelector('#audioCheckbox');
 /** @type {HTMLInputElement} */
 const microCheckbox = document.querySelector('#microCheckbox');
+/** @type {HTMLInputElement} */
+const cameraCheckbox = document.querySelector('#cameraCheckbox');
+/** @type {HTMLCanvasElement} */
+const canvas = document.getElementById('canvasForCamera');
 let stream = null;
-let micStream = null;
+let userStream = null;
 let recorder = null;
-let stopGainAnalyzer = true;
+let stopScheduledRaf = true;
 
 const mimeType = 'video/webm';
 const USE_CAPTURED_STREAM = false;
@@ -29,17 +36,45 @@ const USE_CAPTURED_STREAM = false;
 startBtn.addEventListener('click', async () => {
   try {
     stream = await getDisplayMedia(audioCheckbox.checked);
-    micStream = microCheckbox.checked ?
-      await getUserMedia() :
-      null;
+    userStream = await getUserMedia(microCheckbox.checked, cameraCheckbox.checked);
 
     downloadButton.hidden = true;
     if (downloadButton.href) URL.revokeObjectURL(downloadButton.href);
 
     const capturedStream = USE_CAPTURED_STREAM ? getCapturedStream() : stream;
+    let videoStream = capturedStream;
+    video.srcObject = capturedStream;
+
+    if (cameraCheckbox.checked) {
+      const { width, height } = window.screen;
+
+      cameraVideo.srcObject = userStream;
+      const cameraSettings = userStream.getVideoTracks()[0].getSettings();
+
+      video.classList.add('visualyHidden');
+
+      canvas.hidden = false;
+      canvas.classList.add('visualyHidden');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+
+      const [cameraImageWidth, cameraImageHeight] = getCameraImageSizes(cameraSettings, width, height);
+
+      const computeFrame = () => {
+        ctx.drawImage(video, 0, 0, width, height);
+        ctx.drawImage(cameraVideo, 0, 0, cameraImageWidth, cameraImageHeight);
+
+        if (!stopScheduledRaf) requestAnimationFrame(computeFrame);
+      };
+
+      stopScheduledRaf = false;
+      computeFrame();
+      videoStream = canvas.captureStream(60);
+    }
     const composedStream = new MediaStream();
 
-    capturedStream.getVideoTracks().forEach((videoTrack) => {
+    videoStream.getVideoTracks().forEach((videoTrack) => {
       composedStream.addTrack(videoTrack);
     });
 
@@ -50,8 +85,8 @@ startBtn.addEventListener('click', async () => {
       const [systemSource, systemGain] = getSourseAndGain(context, capturedStream);
       setGainAndConnectSource(systemGain, systemSource, audioDestination);
 
-      if (micStream && micStream.getAudioTracks().length > 0) {
-        const [micSource, micGain] = getSourseAndGain(context, micStream);
+      if (userStream && userStream.getAudioTracks().length > 0) {
+        const [micSource, micGain] = getSourseAndGain(context, userStream);
         setGainAndConnectSource(micGain, micSource, audioDestination);
 
         const analyser = getAnalyzer(context);
@@ -67,9 +102,9 @@ startBtn.addEventListener('click', async () => {
             systemGain.gain.setTargetAtTime(1, context.currentTime, 50);
           }
 
-          if (!stopGainAnalyzer) requestAnimationFrame(listenMicroVolume);
+          if (!stopScheduledRaf) requestAnimationFrame(listenMicroVolume);
         }
-        stopGainAnalyzer = false;
+        stopScheduledRaf = false;
         listenMicroVolume();
       }
 
@@ -77,15 +112,13 @@ startBtn.addEventListener('click', async () => {
         composedStream.addTrack(audioTrack);
       });
     } else {
-      const micTracks = (micStream && micStream.getAudioTracks()) || [];
+      const micTracks = (userStream && userStream.getAudioTracks()) || [];
       if (micTracks.length > 0) {
         micTracks.forEach((micTrack) => {
           composedStream.addTrack(micTrack);
         });
       }
     }
-
-    video.srcObject = stream;
 
     recorder = new MediaRecorder(composedStream, { mimeType });
 
@@ -105,14 +138,20 @@ startBtn.addEventListener('click', async () => {
 
     console.log(stream);
   } catch (err) {
-    console.log(err);
+    console.error(err);
   }
 });
 
 endBtn.addEventListener('click', () => {
   stream.getTracks().forEach(t => t.stop());
-  micStream.getTracks().forEach(t => t.stop());
+  userStream?.getTracks().forEach(t => t.stop());
   recorder.stop();
-  stopGainAnalyzer = true;
+
+  stopScheduledRaf = true;
+
   video.srcObject = null;
+  video.classList.remove('visualyHidden');
+
+  canvas.classList.remove('visualyHidden');
+  canvas.hidden = true;
 });

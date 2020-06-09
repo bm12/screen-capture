@@ -8,6 +8,11 @@
         .video {
             width: 600px;
         }
+
+        .visualyHidden {
+            width: 1px;
+            opacity: 0;
+        }
     </style>
 </head>
 <body>
@@ -19,14 +24,22 @@
             <input type="checkbox" name="" id="audioCheckbox">
             with audio (experimental)
         </label>
+        <br>
         <label for="microCheckbox">
             <input type="checkbox" name="" id="microCheckbox">
-            rec micro (experimental)
+            rec micro
+        </label>
+        <br>
+        <label for="cameraCheckbox">
+            <input type="checkbox" name="" id="cameraCheckbox">
+            rec camera (experimental)
         </label>
     </div>
     <br>
     <video class="video" id="video" autoplay muted></video>
     <br>
+    <canvas id="canvasForCamera" hidden></canvas>
+    <video class="visualyHidden" id="cameraVideo" autoplay muted></video>
     <a id="downloadButton" hidden class="button">
         Download
     </a>
