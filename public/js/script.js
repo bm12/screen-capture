@@ -57,7 +57,7 @@ startBtn.addEventListener('click', async () => {
 
       video.classList.add('visualyHidden');
 
-      canvas.classList.remove('visualyHidden');
+      canvas.classList.add('visualyHidden');
       canvas.hidden = false;
       canvas.width = width;
       canvas.height = height;
@@ -152,6 +152,6 @@ endBtn.addEventListener('click', () => {
   video.srcObject = null;
   video.classList.remove('visualyHidden');
 
-  canvas.classList.add('visualyHidden');
+  canvas.classList.remove('visualyHidden');
   canvas.hidden = true;
 });
