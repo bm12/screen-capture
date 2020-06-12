@@ -1,15 +1,17 @@
 import {
-  getAnalyzer,
-  getAverageVolume,
   getCameraImageSizes,
   getCapturedStream,
   getDisplayMedia,
   getRecorder,
-  getSourseAndGain,
   getUserMedia,
+} from './utils/video.js';
+import {
+  getAnalyzer,
+  getAverageVolume,
+  getSourseAndGain,
   setGainAndConnectSource,
-  templateParser
-} from './utils.js';
+} from './utils/audio.js'
+import { templateParser } from './utils/string.js'
 
 const startBtn = document.querySelector('#start-capture');
 const endBtn = document.querySelector('#end-capture');
