@@ -1,56 +1,59 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Document</title>
-    <style>
-        .video {
-            width: 600px;
-        }
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Document</title>
+  <style>
+    .video {
+      width: 600px;
+    }
 
-        .visualyHidden {
-            width: 1px;
-            opacity: 0;
-        }
+    .visualyHidden {
+      width: 1px;
+      opacity: 0;
+    }
 
-        .previewCanvas {
-          max-width: 600px;
-          height: auto;
-        }
-    </style>
+    .previewCanvas {
+      max-width: 600px;
+      height: auto;
+    }
+  </style>
 </head>
-<body>
-    <div>
-        <button id="start-capture">start capture</button>
-        <button id="end-capture">end capture</button>
-        <br>
-        <label for="audioCheckbox">
-            <input type="checkbox" name="" id="audioCheckbox">
-            with audio (experimental)
-        </label>
-        <br>
-        <label for="microCheckbox">
-            <input type="checkbox" name="" id="microCheckbox">
-            rec micro
-        </label>
-        <br>
-        <label for="cameraCheckbox">
-            <input type="checkbox" name="" id="cameraCheckbox">
-            rec camera (experimental)
-        </label>
-    </div>
-    <br>
-    <video class="video" id="video" autoplay muted></video>
-    <br>
-    <div id="canvasContainer">
-      <video class="visualyHidden" id="cameraVideo" autoplay muted></video>
-      <video class="visualyHidden" id="capturedVideo" autoplay muted></video>
-    </div>
-    <a id="downloadButton" hidden class="button">
-        Download
-    </a>
 
-    <script type="module" src="./js/script.js"></script>
+<body>
+  <div>
+    <button id="start-capture">start capture</button>
+    <button id="end-capture">end capture</button>
+    <br>
+    <label for="audioCheckbox">
+      <input type="checkbox" name="" id="audioCheckbox">
+      with audio (experimental)
+    </label>
+    <br>
+    <label for="microCheckbox">
+      <input type="checkbox" name="" id="microCheckbox">
+      rec micro
+    </label>
+    <br>
+    <label for="cameraCheckbox">
+      <input type="checkbox" name="" id="cameraCheckbox">
+      rec camera (experimental)
+    </label>
+  </div>
+  <br>
+  <video class="video" id="video" autoplay muted></video>
+  <br>
+  <div id="canvasContainer">
+    <video class="visualyHidden" id="cameraVideo" autoplay muted></video>
+    <video class="visualyHidden" id="capturedVideo" autoplay muted></video>
+  </div>
+  <a id="downloadButton" hidden class="button">
+    Download
+  </a>
+
+  <script type="module" src="./js/script.js"></script>
 </body>
+
 </html>
