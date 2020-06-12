@@ -81,3 +81,44 @@ export const getCameraImageSizes = (cameraSettings, canvasWidth, canvasHeight) =
 
   }
 };
+
+/**
+ * @param {object} options
+ * @param {MediaStream} options.stream - source stream to be recorded
+ * @param {string} options.mimeType - mimeType for MediaRecorder and type for Blob
+ * @returns {{
+ *  inctance: MediaRecorder,
+ *  rec: () => Promise<Blob>
+ * }}
+ */
+export const getRecorder = ({ stream, mimeType }) => {
+  recorder = new MediaRecorder(stream, { mimeType });
+  return {
+    inctance: recorder,
+    rec: () => {
+      const promise = new Promise((resolve, reject) => {
+        const data = [];
+        recorder.ondataavailable = event => data.push(event.data);
+        recorder.onerror = (err) => reject(err);
+
+        recorder.onstop = () => {
+          const recordedBlob = new Blob(data, { type: mimeType });
+          resolve(recordedBlob);
+        };
+      });
+      recorder.start();
+      return promise;
+    }
+  };
+}
+/**
+ * Gets a string like 'Now: {{time}}'
+ * and replace with values from the object
+ * @param {string} string
+ * @param {object} values
+ */
+export const templateParser = (string, values) => {
+  if (!string) return '';
+  if (!values) return string;
+  return string.replace(/{{(\w+)}}/ig, (full, match) => values[match]);
+}

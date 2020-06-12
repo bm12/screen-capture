@@ -1,12 +1,14 @@
 import {
   getAnalyzer,
   getAverageVolume,
+  getCameraImageSizes,
   getCapturedStream,
   getDisplayMedia,
+  getRecorder,
   getSourseAndGain,
   getUserMedia,
   setGainAndConnectSource,
-  getCameraImageSizes
+  templateParser
 } from './utils.js';
 
 const startBtn = document.querySelector('#start-capture');
@@ -121,20 +123,17 @@ startBtn.addEventListener('click', async () => {
     }
 
     recorder = new MediaRecorder(composedStream, { mimeType });
+    const recorder = getRecorder({ stream: composedStream, mimeType });
+    const recordedBlob = await recorder.rec();
+    const today = new Date();
+    const fileName = templateParser('captured-{{date}}-{{time}}.webm', {
+      date: today.toDateString(),
+      time: today.toTimeString().substr(0, 17).replace(':', '-'),
+    });
 
-    let data = [];
-
-    recorder.ondataavailable = event => data.push(event.data);
-    recorder.start();
-    recorder.onstop = () => {
-      const recordedBlob = new Blob(data, { type: mimeType });
-      const today = new Date();
-      const fileName = `captured-${today.toDateString()}-${today.toTimeString().substr(0, 17).replace(':', '-')}.webm`;
-
-      downloadButton.href = URL.createObjectURL(recordedBlob);
-      downloadButton.download = fileName;
-      downloadButton.hidden = false;
-    };
+    downloadButton.href = URL.createObjectURL(recordedBlob);
+    downloadButton.download = fileName;
+    downloadButton.hidden = false;
 
     console.log(stream);
   } catch (err) {
