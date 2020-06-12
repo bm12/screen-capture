@@ -12,6 +12,7 @@ import {
   setGainAndConnectSource,
 } from './utils/audio.js'
 import { templateParser } from './utils/string.js'
+import { VideoStreamMixer } from './VideoStreamMixer.js';
 
 const startBtn = document.querySelector('#start-capture');
 const endBtn = document.querySelector('#end-capture');
@@ -27,11 +28,10 @@ const audioCheckbox = document.querySelector('#audioCheckbox');
 const microCheckbox = document.querySelector('#microCheckbox');
 /** @type {HTMLInputElement} */
 const cameraCheckbox = document.querySelector('#cameraCheckbox');
-/** @type {HTMLCanvasElement} */
-const canvas = document.getElementById('canvasForCamera');
 let stream = null;
 let userStream = null;
 let recorder = null;
+let videoMixer = null;
 let stopScheduledRaf = true;
 
 const mimeType = 'video/webm';
@@ -57,24 +57,25 @@ startBtn.addEventListener('click', async () => {
 
       video.classList.add('visualyHidden');
 
-      canvas.classList.add('visualyHidden');
-      canvas.hidden = false;
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext("2d");
-
       const [cameraImageWidth, cameraImageHeight] = getCameraImageSizes(cameraSettings, width, height);
 
-      const computeFrame = () => {
-        ctx.drawImage(video, 0, 0, width, height);
-        ctx.drawImage(cameraVideo, 0, 0, cameraImageWidth, cameraImageHeight);
-
-        if (!stopScheduledRaf) requestAnimationFrame(computeFrame);
-      };
-
-      stopScheduledRaf = false;
-      computeFrame();
-      videoStream = canvas.captureStream(60);
+      videoMixer = new VideoStreamMixer({
+        container: '#canvasContainer',
+        previewClassName: 'previewCanvas',
+        firstStreamData: {
+          stream: capturedStream,
+          video: '#capturedVideo',
+        },
+        secondStreamData: {
+          stream: userStream,
+          video: '#cameraVideo',
+          width: cameraImageWidth,
+          height: cameraImageHeight,
+        },
+        sizes: { width, height },
+      });
+      videoMixer.init();
+      videoStream = videoMixer.getVideoStream();
     }
     const composedStream = new MediaStream();
 
@@ -146,6 +147,7 @@ endBtn.addEventListener('click', () => {
   stream.getTracks().forEach(t => t.stop());
   userStream?.getTracks().forEach(t => t.stop());
   recorder.stop();
+  videoMixer?.destroy();
 
   stopScheduledRaf = true;
 

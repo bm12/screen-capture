@@ -13,6 +13,11 @@
             width: 1px;
             opacity: 0;
         }
+
+        .previewCanvas {
+          max-width: 600px;
+          height: auto;
+        }
     </style>
 </head>
 <body>
@@ -38,8 +43,10 @@
     <br>
     <video class="video" id="video" autoplay muted></video>
     <br>
-    <canvas id="canvasForCamera" hidden></canvas>
-    <video class="visualyHidden" id="cameraVideo" autoplay muted></video>
+    <div id="canvasContainer">
+      <video class="visualyHidden" id="cameraVideo" autoplay muted></video>
+      <video class="visualyHidden" id="capturedVideo" autoplay muted></video>
+    </div>
     <a id="downloadButton" hidden class="button">
         Download
     </a>
