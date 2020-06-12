@@ -93,6 +93,7 @@ class VideoStreamMixer {
     return this.videoStream;
   }
 
+  /** @private */
   computeFrame = () => {
     const ctx = this.ctx;
     const data1 = this.firstStreamData;
