@@ -55,8 +55,8 @@ startBtn.addEventListener('click', async () => {
 
       video.classList.add('visualyHidden');
 
+      canvas.classList.remove('visualyHidden');
       canvas.hidden = false;
-      canvas.classList.add('visualyHidden');
       canvas.width = width;
       canvas.height = height;
       const ctx = canvas.getContext("2d");
@@ -122,8 +122,7 @@ startBtn.addEventListener('click', async () => {
       }
     }
 
-    recorder = new MediaRecorder(composedStream, { mimeType });
-    const recorder = getRecorder({ stream: composedStream, mimeType });
+    recorder = getRecorder({ stream: composedStream, mimeType });
     const recordedBlob = await recorder.rec();
     const today = new Date();
     const fileName = templateParser('captured-{{date}}-{{time}}.webm', {
@@ -151,6 +150,6 @@ endBtn.addEventListener('click', () => {
   video.srcObject = null;
   video.classList.remove('visualyHidden');
 
-  canvas.classList.remove('visualyHidden');
+  canvas.classList.add('visualyHidden');
   canvas.hidden = true;
 });

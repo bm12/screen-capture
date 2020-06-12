@@ -92,7 +92,7 @@ export const getCameraImageSizes = (cameraSettings, canvasWidth, canvasHeight) =
  * }}
  */
 export const getRecorder = ({ stream, mimeType }) => {
-  recorder = new MediaRecorder(stream, { mimeType });
+  const recorder = new MediaRecorder(stream, { mimeType });
   return {
     inctance: recorder,
     rec: () => {
@@ -108,7 +108,8 @@ export const getRecorder = ({ stream, mimeType }) => {
       });
       recorder.start();
       return promise;
-    }
+    },
+    stop: () => recorder.stop(),
   };
 }
 /**
