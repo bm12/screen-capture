@@ -18,8 +18,6 @@ const startBtn = document.querySelector('#start-capture');
 const endBtn = document.querySelector('#end-capture');
 /** @type {HTMLVideoElement} */
 const video = document.querySelector('#video');
-/** @type {HTMLVideoElement} */
-const cameraVideo = document.querySelector('#cameraVideo');
 /** @type {HTMLAnchorElement} */
 const downloadButton = document.querySelector('#downloadButton');
 /** @type {HTMLInputElement} */
@@ -51,8 +49,6 @@ startBtn.addEventListener('click', async () => {
 
     if (cameraCheckbox.checked) {
       const { width, height } = window.screen;
-
-      cameraVideo.srcObject = userStream;
       const cameraSettings = userStream.getVideoTracks()[0].getSettings();
 
       video.classList.add('visualyHidden');
@@ -153,7 +149,4 @@ endBtn.addEventListener('click', () => {
 
   video.srcObject = null;
   video.classList.remove('visualyHidden');
-
-  canvas.classList.remove('visualyHidden');
-  canvas.hidden = true;
 });
