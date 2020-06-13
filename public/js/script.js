@@ -1,15 +1,15 @@
+import { AudioStreamMixer } from './AudioStreamMixer.js';
+import { addTracksInStream } from './utils/media.js';
+import { templateParser } from './utils/string.js';
 import {
   getCameraImageSizes,
   getCapturedStream,
   getDisplayMedia,
   getRecorder,
-  getUserMedia,
   getScreenSizes,
+  getUserMedia,
 } from './utils/video.js';
-import { templateParser } from './utils/string.js'
 import { VideoStreamMixer } from './VideoStreamMixer.js';
-import { AudioStreamMixer } from './AudioStreamMixer.js';
-import { addTracksInStream } from './utils/media.js';
 
 const startBtn = document.querySelector('#start-capture');
 const endBtn = document.querySelector('#end-capture');
