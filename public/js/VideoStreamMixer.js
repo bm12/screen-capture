@@ -6,13 +6,17 @@ const visualyHiddenStyles = {
 };
 
 /**
- * @typedef {object} StreamData
+ * @typedef {object} StreamConfig
  * @property {MediaStream} stream
  * @property {string} video
  * @property {number} [width=]
  * @property {number} [height=]
  * @property {number} [top=0]
  * @property {number} [left=0]
+ */
+
+/**
+ * @typedef {{ width: number, height: number }} CanvasSizes
  */
 
 class VideoStreamMixer {
@@ -31,27 +35,36 @@ class VideoStreamMixer {
     /** @type {string} */
     this.previewClassName = previewClassName;
 
-    /** @type {StreamData} */
-    this.firstStreamData = {
-      stream: firstStreamData.stream,
-      video: firstStreamData.video,
-      top: firstStreamData.top ?? 0,
-      left: firstStreamData.left ?? 0,
-      width: firstStreamData.width ?? sizes.width,
-      height: firstStreamData.height ?? sizes.height,
-    };
-    /** @type {StreamData} */
-    this.secondStreamData = {
-      stream: secondStreamData.stream,
-      video: secondStreamData.video,
-      top: secondStreamData.top ?? 0,
-      left: secondStreamData.left ?? 0,
-      width: secondStreamData.width ?? sizes.width,
-      height: secondStreamData.height ?? sizes.height,
-    };
+    /** @type {StreamConfig} */
+    this.firstStreamData = VideoStreamMixer.mapStreamData(sizes, firstStreamData);
+    /** @type {StreamConfig} */
+    this.secondStreamData = VideoStreamMixer.mapStreamData(sizes, secondStreamData);
 
-    /** @type {{ width: number, height: number }} */
+    /** @type {CanvasSizes} */
     this.sizes = sizes;
+  }
+
+  /**
+   * @param {CanvasSizes} sizes
+   * @param {object} data
+   * @returns {StreamConfig}
+   */
+  static mapStreamData(sizes, data) {
+    const streamDataDefaulValues = {
+      stream: null,
+      video: null,
+      top: 0,
+      left: 0,
+      width: sizes.width,
+      height: sizes.height,
+    };
+    const newData = {};
+
+    Object.keys(streamDataDefaulValues).forEach((key) => {
+      newData[key] = data[key] ?? streamDataDefaulValues[key];
+    });
+
+    return newData;
   }
 
   static applyHiddenStyles = (elem) => {
@@ -72,7 +85,7 @@ class VideoStreamMixer {
     }
 
     const childs = [canvas];
-    appendAll(this.container, childs);
+    appendAll(this.container ?? document.body, childs);
 
     this.ctx = ctx;
     this.canvas = canvas;
@@ -120,6 +133,5 @@ class VideoStreamMixer {
     this.secondVideo.srcObject = null;
   }
 }
-
 
 export { VideoStreamMixer };
