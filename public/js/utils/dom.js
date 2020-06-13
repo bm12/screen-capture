@@ -1,7 +1,7 @@
 /** @returns {[HTMLCanvasElement, CanvasRenderingContext2D]} */
-export const createCanvasAndCtx = () => {
+export const createCanvasAndCtx = (options = {}) => {
   const canvas = document.createElement('canvas');
-  const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext('2d', options.ctx);
 
   return [canvas, ctx];
 }

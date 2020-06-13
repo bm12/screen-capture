@@ -71,7 +71,7 @@ class VideoStreamMixer {
   };
 
   init() {
-    const [canvas, ctx] = createCanvasAndCtx();
+    const [canvas, ctx] = createCanvasAndCtx({ ctx: { alpha: false } });
     canvas.width = this.sizes.width;
     canvas.height = this.sizes.height;
 

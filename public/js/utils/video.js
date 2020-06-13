@@ -7,6 +7,7 @@ export const getDisplayMedia = (audio, screenSizes) => {
       logicalSurface: true,
       width: screenSizes.width,
       height: screenSizes.height,
+      frameRate: 60,
     },
     audio,
   });
@@ -45,6 +46,16 @@ export const getCameraImageSizes = (cameraSettings, canvasWidth, canvasHeight) =
     return [cameraImageWidth, cameraImageHeight];
 
   }
+};
+
+export const getScreenSizes = (useNative) => {
+  const { height, width } = window.screen;
+  if (!useNative) return { width, height };
+
+  return {
+    width: width * window.devicePixelRatio,
+    height: height * window.devicePixelRatio,
+  };
 };
 
 /**
