@@ -94,7 +94,7 @@ class VideoStreamMixer {
     this.secondVideo.srcObject = this.secondStreamData.stream;
 
     this.scheduleNextRaf = true;
-    this.computeFrame();
+    requestAnimationFrame(this.computeFrame);
 
     this.videoStream = canvas.captureStream(60);
   }
