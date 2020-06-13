@@ -4,13 +4,8 @@ import {
   getDisplayMedia,
   getRecorder,
   getUserMedia,
+  getScreenSizes,
 } from './utils/video.js';
-import {
-  getAnalyzer,
-  getAverageVolume,
-  getSourseAndGain,
-  setGainAndConnectSource,
-} from './utils/audio.js'
 import { templateParser } from './utils/string.js'
 import { VideoStreamMixer } from './VideoStreamMixer.js';
 import { AudioStreamMixer } from './AudioStreamMixer.js';
@@ -32,14 +27,16 @@ let stream = null;
 let userStream = null;
 let recorder = null;
 let videoMixer = null;
-let stopScheduledRaf = true;
+let audioMixer = null;
 
 const mimeType = 'video/webm';
 const USE_CAPTURED_STREAM = false;
+const USE_NATIVE_RESOLUTION = true;
 
 startBtn.addEventListener('click', async () => {
   try {
-    stream = await getDisplayMedia(audioCheckbox.checked);
+    const screenSizes = getScreenSizes(USE_NATIVE_RESOLUTION);
+    stream = await getDisplayMedia(audioCheckbox.checked, screenSizes);
     userStream = await getUserMedia(microCheckbox.checked, cameraCheckbox.checked);
 
     downloadButton.hidden = true;
@@ -50,7 +47,7 @@ startBtn.addEventListener('click', async () => {
     video.srcObject = capturedStream;
 
     if (cameraCheckbox.checked) {
-      const { width, height } = window.screen;
+      const { width, height } = screenSizes;
       const cameraSettings = userStream.getVideoTracks()[0].getSettings();
 
       video.classList.add('visualyHidden');
@@ -70,7 +67,7 @@ startBtn.addEventListener('click', async () => {
           width: cameraImageWidth,
           height: cameraImageHeight,
         },
-        sizes: { width, height },
+        sizes: screenSizes,
       });
       videoMixer.init();
       videoStream = videoMixer.getVideoStream();
@@ -80,7 +77,7 @@ startBtn.addEventListener('click', async () => {
     addTracksInStream(videoStream.getVideoTracks(), composedStream);
 
     if (capturedStream.getAudioTracks().length > 0) {
-      const audioMixer = new AudioStreamMixer({
+      audioMixer = new AudioStreamMixer({
         systemAudioStream: capturedStream,
         userAudioStream: userStream,
       });
@@ -118,8 +115,7 @@ endBtn.addEventListener('click', () => {
   userStream?.getTracks().forEach(t => t.stop());
   recorder.stop();
   videoMixer?.destroy();
-
-  stopScheduledRaf = true;
+  audioMixer?.stop();
 
   video.srcObject = null;
   video.classList.remove('visualyHidden');

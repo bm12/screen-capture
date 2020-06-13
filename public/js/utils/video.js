@@ -1,12 +1,12 @@
 export const getCapturedStream = (video) => (video.captureStream || video.mozCaptureStream)();
 
-export const getDisplayMedia = (audio) => {
+export const getDisplayMedia = (audio, screenSizes) => {
   return navigator.mediaDevices.getDisplayMedia({
     video: {
       cursor: 'always',
       logicalSurface: true,
-      width: 1920,
-      height: 1080,
+      width: screenSizes.width,
+      height: screenSizes.height,
     },
     audio,
   });
