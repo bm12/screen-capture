@@ -1,9 +1,6 @@
 import { createCanvasAndCtx, appendAll } from './utils/dom.js';
 
-const visualyHiddenStyles = {
-  opacity: 0,
-  width: '1px',
-};
+const visualyHiddenStyles = { opacity: 0, width: '1px' };
 
 /**
  * @typedef {object} StreamConfig
@@ -102,9 +99,7 @@ class VideoStreamMixer {
     this.videoStream = canvas.captureStream(60);
   }
 
-  getVideoStream() {
-    return this.videoStream;
-  }
+  getVideoStream = () => this.videoStream;
 
   /** @private */
   computeFrame = () => {
