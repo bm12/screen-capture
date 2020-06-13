@@ -13,6 +13,8 @@ import {
 } from './utils/audio.js'
 import { templateParser } from './utils/string.js'
 import { VideoStreamMixer } from './VideoStreamMixer.js';
+import { AudioStreamMixer } from './AudioStreamMixer.js';
+import { addTracksInStream } from './utils/media.js';
 
 const startBtn = document.querySelector('#start-capture');
 const endBtn = document.querySelector('#end-capture');
@@ -73,51 +75,23 @@ startBtn.addEventListener('click', async () => {
       videoMixer.init();
       videoStream = videoMixer.getVideoStream();
     }
-    const composedStream = new MediaStream();
 
-    videoStream.getVideoTracks().forEach((videoTrack) => {
-      composedStream.addTrack(videoTrack);
-    });
+    const composedStream = new MediaStream();
+    addTracksInStream(videoStream.getVideoTracks(), composedStream);
 
     if (capturedStream.getAudioTracks().length > 0) {
-      const context = new AudioContext();
-      const audioDestination = context.createMediaStreamDestination();
-
-      const [systemSource, systemGain] = getSourseAndGain(context, capturedStream);
-      setGainAndConnectSource(systemGain, systemSource, audioDestination);
-
-      if (userStream && userStream.getAudioTracks().length > 0) {
-        const [micSource, micGain] = getSourseAndGain(context, userStream);
-        setGainAndConnectSource(micGain, micSource, audioDestination);
-
-        const analyser = getAnalyzer(context);
-
-        micSource.connect(analyser);
-        function listenMicroVolume() {
-          const average = getAverageVolume(analyser);
-
-          console.log(Math.round(average));
-          if (average > 30) {
-            systemGain.gain.setTargetAtTime(0.32, context.currentTime, 50);
-          } else {
-            systemGain.gain.setTargetAtTime(1, context.currentTime, 50);
-          }
-
-          if (!stopScheduledRaf) requestAnimationFrame(listenMicroVolume);
-        }
-        stopScheduledRaf = false;
-        listenMicroVolume();
-      }
-
-      audioDestination.stream.getAudioTracks().forEach((audioTrack) => {
-        composedStream.addTrack(audioTrack);
+      const audioMixer = new AudioStreamMixer({
+        systemAudioStream: capturedStream,
+        userAudioStream: userStream,
       });
+
+      audioMixer.start();
+      const audioStream = audioMixer.getAudioStream();
+      addTracksInStream(audioStream.getAudioTracks(), composedStream);
     } else {
-      const micTracks = (userStream && userStream.getAudioTracks()) || [];
+      const micTracks = userStream?.getAudioTracks() ?? [];
       if (micTracks.length > 0) {
-        micTracks.forEach((micTrack) => {
-          composedStream.addTrack(micTrack);
-        });
+        addTracksInStream(micTracks, composedStream);
       }
     }
 
