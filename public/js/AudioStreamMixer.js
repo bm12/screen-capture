@@ -38,10 +38,6 @@ class AudioStreamMixer {
       this.scheduleNextRaf = true;
       this.listenMicroVolume();
     }
-
-    // audioDestination.stream.getAudioTracks().forEach((audioTrack) => {
-    //   this.audioStream.addTrack(audioTrack);
-    // });
   }
 
   getAudioStream = () => this.audioDestination.stream;
