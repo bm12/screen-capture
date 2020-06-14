@@ -59,6 +59,11 @@ class AudioStreamMixer {
   stop() {
     this.scheduleNextRaf = false;
   }
+
+  destroy() {
+    this.stop();
+    this.context.close();
+  }
 }
 
 export { AudioStreamMixer };

@@ -132,7 +132,7 @@ endBtn.addEventListener('click', () => {
   userStream?.getTracks().forEach(t => t.stop());
   recorder.stop();
   videoMixer?.destroy();
-  audioMixer?.stop();
+  audioMixer?.destroy();
 
   video.srcObject = null;
   video.classList.remove('visualyHidden');
