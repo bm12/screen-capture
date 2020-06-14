@@ -53,8 +53,8 @@ init();
 startBtn.addEventListener('click', async () => {
   try {
     const screenSizes = getScreenSizes(USE_NATIVE_RESOLUTION);
-    stream = await getDisplayMedia(audioCheckbox.checked, screenSizes);
     userStream = await getUserMedia(microCheckbox.checked, cameraCheckbox.checked);
+    stream = await getDisplayMedia(audioCheckbox.checked, screenSizes);
 
     downloadButton.hidden = true;
     if (downloadButton.href) URL.revokeObjectURL(downloadButton.href);
