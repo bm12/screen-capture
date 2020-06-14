@@ -10,6 +10,7 @@ import {
   getUserMedia,
 } from './utils/video.js';
 import { VideoStreamMixer } from './VideoStreamMixer.js';
+import { setErrorElHidden } from './utils/dom.js';
 
 const startBtn = document.querySelector('#start-capture');
 const endBtn = document.querySelector('#end-capture');
@@ -32,6 +33,22 @@ let audioMixer = null;
 const mimeType = 'video/webm';
 const USE_CAPTURED_STREAM = false;
 const USE_NATIVE_RESOLUTION = true;
+
+const init = () => {
+  const ondevicechange = async (e) => {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+
+    const hasMicro = devices.find(device => device.kind === 'audioinput');
+    const hasCamera = devices.find(device => device.kind === 'videoinput');
+
+    setErrorElHidden('.micro-checkbox-wrap', hasMicro);
+    setErrorElHidden('.camera-checkbox-wrap', hasCamera);
+  }
+  navigator.mediaDevices.addEventListener('devicechange', ondevicechange);
+  ondevicechange();
+};
+
+init();
 
 startBtn.addEventListener('click', async () => {
   try {

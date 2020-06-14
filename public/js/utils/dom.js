@@ -15,3 +15,9 @@ export const appendAll = (parrent, childs) => {
     parrent.appendChild(elem);
   });
 };
+
+export const setErrorElHidden = (wraperSelector, hide) => {
+  const errorMsgEl = document.querySelector(wraperSelector)?.querySelector('.error');
+
+  if (errorMsgEl) errorMsgEl.hidden = hide;
+};
