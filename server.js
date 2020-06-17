@@ -1,8 +1,10 @@
 const express = require('express');
 const fs = require('fs');
 const https = require('https');
+const http = require('http');
 const WebSocket = require('ws');
 
+const isProd = process.env.NODE_ENV === 'production';
 const PORT = 8000;
 
 const app = express();
@@ -14,10 +16,20 @@ const serverOptions = {
 
 app.use(express.static('public'));
 
-const httpsServer = https.createServer(serverOptions, app).listen(PORT);
-console.log(`HTTPS server is up and running on https://localhost:${PORT}`);
+const createServer = () => {
+  const server = isProd ?
+    http.createServer(app).listen(PORT) :
+    https.createServer(serverOptions, app).listen(PORT);
 
-const wssServer = new WebSocket.Server({ server: httpsServer });
+  const protocol = isProd ? 'http' : 'https';
+  console.log(`${protocol} server is up and running on ${protocol}://localhost:${PORT}`);
+
+  return server;
+};
+
+const server = createServer();
+
+const wssServer = new WebSocket.Server({ server });
 console.log('WebSocket Secure server is up and running.');
 
 wssServer.on('connection', function onWsConnection(client, ...args) {

@@ -4,7 +4,8 @@
   "description": "",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "prop": "cross-env NODE_ENV=production node server.js"
   },
   "keywords": [],
   "author": "",
@@ -12,5 +13,8 @@
   "dependencies": {
     "express": "^4.17.1",
     "ws": "^7.3.0"
+  },
+  "devDependencies": {
+    "cross-env": "^7.0.2"
   }
 }
