@@ -69,22 +69,24 @@ export const getScreenSizes = (useNative) => {
  */
 export const getRecorder = ({ stream, mimeType }) => {
   const recorder = new MediaRecorder(stream, { mimeType });
+
+  const data = [];
+  recorder.ondataavailable = event => data.push(event.data);
+
+  const promise = new Promise((resolve, reject) => {
+    recorder.onstop = () => {
+      const recordedBlob = new Blob(data, { type: mimeType });
+      resolve(recordedBlob);
+    };
+    recorder.onerror = (err) => reject(err);
+  });
+
   return {
     inctance: recorder,
     rec: () => {
-      const promise = new Promise((resolve, reject) => {
-        const data = [];
-        recorder.ondataavailable = event => data.push(event.data);
-        recorder.onerror = (err) => reject(err);
-
-        recorder.onstop = () => {
-          const recordedBlob = new Blob(data, { type: mimeType });
-          resolve(recordedBlob);
-        };
-      });
       recorder.start();
-      return promise;
     },
     stop: () => recorder.stop(),
+    getResult: () => promise,
   };
 }

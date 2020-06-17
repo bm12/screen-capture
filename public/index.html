@@ -39,9 +39,11 @@
 
 <body>
   <div>
-    <button id="start">start</button>
-    <button id="end">end</button>
-    <br>
+    <div>
+      <button id="start">start</button>
+      <button id="end">end</button>
+    </div>
+
     <label for="audioCheckbox">
       <input type="checkbox" name="" id="audioCheckbox">
       with audio (experimental)
@@ -72,29 +74,27 @@
       </label>
       <div class="streaming-inputs-wrap">
         <p>
-          Before start stream you should generate id and consumer should connect to room by id
+          Before start stream you should generate id and
+          consumer should connect to room by id
         </p>
         <label for="streamingProviderId">
           room id
           <input type="text" id="streamingProviderId" disabled readonly >
         </label>
         <button id="generateRoomId">generate room id</button>
-        <br>
         <div>
           <label for="streamingConsumerId">
             connect to room with Id:
             <input type="text" id="streamingConsumerId" >
           </label>
+          <button id="setRoomId">set room id</button>
         </div>
-        <button id="setRoomId">set room id</button>
       </div>
 
     </div>
   </div>
-  <br>
   <video class="video" id="video" autoplay muted></video>
   <video class="stream-consumer-video" id="streamConsumerVideo" controls autoplay hidden></video>
-  <br>
   <div id="canvasContainer">
     <video class="visualyHidden" id="cameraVideo" autoplay muted></video>
     <video class="visualyHidden" id="capturedVideo" autoplay muted></video>

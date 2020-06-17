@@ -1,17 +1,24 @@
+/**
+ * @param {object} config
+ * @param {function} onaddstream
+ * @param {WebSocket} signalingChannel
+ */
 export const createPeerConnection = (config, onaddstream, signalingChannel) => {
   const connection = new RTCPeerConnection(config);
 
-  // send any ice candidates to the other peer
-  connection.onicecandidate = evt => {
+  connection.onicecandidate = (evt) => {
     if (!evt || !evt.candidate) return;
     signalingChannel.send(JSON.stringify({ event: 'web-rtc', data: evt.candidate }));
   };
-;
   connection.onaddstream = onaddstream;
 
   return connection;
 };
 
+/**
+ * @param {RTCPeerConnection} peerConnection
+ * @param {WebSocket} signalingChannel
+ */
 export const createAndSendOffer = (peerConnection, signalingChannel) => {
   return peerConnection
     .createOffer()
@@ -26,6 +33,10 @@ export const createAndSendOffer = (peerConnection, signalingChannel) => {
     });
 };
 
+/**
+ * @param {RTCPeerConnection} peerConnection
+ * @param {WebSocket} signalingChannel
+ */
 export const createAndSendAnswer = (peerConnection, signalingChannel) => {
   return peerConnection
     .createAnswer()

@@ -1,3 +1,4 @@
+/** @param {AnalyserNode} analyser */
 export const getAverageVolume = (analyser) => {
   const array = new Uint8Array(analyser.frequencyBinCount);
   analyser.getByteFrequencyData(array);
@@ -13,6 +14,10 @@ export const getAverageVolume = (analyser) => {
   return average;
 };
 
+/**
+ * @param {AudioContext} context
+ * @param {MediaStream} stream
+ */
 export const getSourseAndGain = (context, stream) => {
   const source = context.createMediaStreamSource(stream);
   const gain = context.createGain();
@@ -20,11 +25,18 @@ export const getSourseAndGain = (context, stream) => {
   return [source, gain];
 };
 
+/**
+ * @param {GainNode} gainNode
+ * @param {MediaStreamAudioSourceNode} source
+ * @param {MediaStreamAudioDestinationNode} audioDestination
+ * @param {number} gainValue
+ */
 export const setGainAndConnectSource = (gainNode, source, audioDestination, gainValue = 1) => {
   gainNode.gain.value = gainValue;
   source.connect(gainNode).connect(audioDestination);
 };
 
+/** @param {AudioContext} context */
 export const getAnalyzer = (context) => {
   const analyser = context.createAnalyser();
   analyser.smoothingTimeConstant = 0.8;

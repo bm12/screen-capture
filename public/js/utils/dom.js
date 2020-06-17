@@ -16,6 +16,10 @@ export const appendAll = (parrent, childs) => {
   });
 };
 
+/**
+ * @param {string} wraperSelector
+ * @param {boolean} hide
+ */
 export const setErrorElHidden = (wraperSelector, hide) => {
   const errorMsgEl = document.querySelector(wraperSelector)?.querySelector('.error');
 
