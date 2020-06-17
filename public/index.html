@@ -23,13 +23,24 @@
     .error {
       color: #f00;
     }
+
+    .streaming-inputs-wrap {
+      display: none;
+    }
+    .streaming-radio:checked ~ .streaming-inputs-wrap {
+      display: block;
+    }
+
+    .stream-consumer-video {
+      max-width: 90vw;
+    }
   </style>
 </head>
 
 <body>
   <div>
-    <button id="start-capture">start capture</button>
-    <button id="end-capture">end capture</button>
+    <button id="start">start</button>
+    <button id="end">end</button>
     <br>
     <label for="audioCheckbox">
       <input type="checkbox" name="" id="audioCheckbox">
@@ -47,14 +58,46 @@
       rec camera (experimental)
       <span class="error" hidden>Attention: Available camera not found</span>
     </label>
+    <hr>
+    <div>
+      <label>
+        <input type="radio" checked name="stream-target" id="capturingRadio">
+        capture to file
+      </label>
+    </div>
+    <div class="streaming-radio-wrap">
+      <input type="radio" class="streaming-radio" name="stream-target" id="streamingRadio">
+      <label for="streamingRadio">
+        capture to stream (experimental)
+      </label>
+
+      <div class="streaming-inputs-wrap">
+        <label for="streamingProviderId">
+          room id
+          <input type="text" id="streamingProviderId" disabled readonly >
+        </label>
+        <button id="generateRoomId">generate room id</button>
+        <br>
+        <div>
+          <label for="streamingConsumerId">
+            connect to room with Id:
+            <input type="text" id="streamingConsumerId" >
+          </label>
+        </div>
+        <button id="setRoomId">set room id</button>
+      </div>
+
+    </div>
   </div>
   <br>
   <video class="video" id="video" autoplay muted></video>
+  <video class="stream-consumer-video" id="streamConsumerVideo" controls autoplay hidden></video>
   <br>
   <div id="canvasContainer">
     <video class="visualyHidden" id="cameraVideo" autoplay muted></video>
     <video class="visualyHidden" id="capturedVideo" autoplay muted></video>
   </div>
+
   <a id="downloadButton" hidden class="button">
     Download
   </a>
