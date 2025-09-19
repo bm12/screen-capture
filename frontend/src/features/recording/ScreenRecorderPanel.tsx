@@ -189,7 +189,6 @@ export const ScreenRecorderPanel = () => {
       if (typeof window.MediaRecorder === 'undefined') {
         throw new Error('MediaRecorder API is not supported in this браузер');
       }
-
       const composedStream = new MediaStream();
       addTracksToStream(videoSource.getVideoTracks(), composedStream);
 

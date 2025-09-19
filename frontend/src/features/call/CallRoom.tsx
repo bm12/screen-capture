@@ -243,6 +243,7 @@ export const CallRoom = ({ roomId }: CallRoomProps) => {
       if (!payload || payload.senderId === selfIdRef.current) {
         return;
       }
+
       console.log('[call] Получен сигнал от участника', payload);
       const { senderId, signal } = payload;
       if (signal.kind === 'description') {
