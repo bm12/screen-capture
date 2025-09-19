@@ -1,7 +1,7 @@
 const express = require('express');
 const fs = require('fs');
+const path = require('path');
 const https = require('https');
-const http = require('http');
 const WebSocket = require('ws');
 
 const isProd = process.env.NODE_ENV === 'production';
@@ -11,19 +11,63 @@ const app = express();
 
 app.use(express.static('public'));
 
-const createServer = () => {
-  const serverOptions = {
-    key: fs.readFileSync('./ssl/key.pem'),
-    cert: fs.readFileSync('./ssl/cert.pem'),
-    passphrase: '123456789',
+const resolvePath = (filePath) =>
+  path.isAbsolute(filePath) ? filePath : path.resolve(filePath);
+
+const readTlsFile = (filePath, label) => {
+  if (!fs.existsSync(filePath)) {
+    throw new Error(`SSL ${label} file not found at ${filePath}`);
+  }
+
+  return fs.readFileSync(filePath);
+};
+
+const buildHttpsOptions = () => {
+  const defaultKeyPath = path.join(__dirname, 'ssl', 'key.pem');
+  const defaultCertPath = path.join(__dirname, 'ssl', 'cert.pem');
+
+  const keyPathEnv = process.env.SSL_KEY_PATH;
+  const certPathEnv = process.env.SSL_CERT_PATH;
+  const caPathEnv = process.env.SSL_CA_PATH;
+  const passphraseEnv = process.env.SSL_PASSPHRASE;
+
+  if (isProd && (!keyPathEnv || !certPathEnv)) {
+    throw new Error(
+      'Production HTTPS server requires SSL_KEY_PATH and SSL_CERT_PATH environment variables.'
+    );
+  }
+
+  const keyPath = resolvePath(keyPathEnv || defaultKeyPath);
+  const certPath = resolvePath(certPathEnv || defaultCertPath);
+
+  const httpsOptions = {
+    key: readTlsFile(keyPath, 'key'),
+    cert: readTlsFile(certPath, 'certificate'),
   };
 
-  const server = isProd ?
-    http.createServer(app).listen(PORT) :
-    https.createServer(serverOptions, app).listen(PORT);
+  if (caPathEnv) {
+    const caPaths = caPathEnv
+      .split(path.delimiter)
+      .map((caPath) => caPath.trim())
+      .filter(Boolean)
+      .map(resolvePath);
 
-  const protocol = isProd ? 'http' : 'https';
-  console.log(`${protocol} server is up and running on ${protocol}://localhost:${PORT}`);
+    httpsOptions.ca = caPaths.map((caPath) => readTlsFile(caPath, 'CA/chain'));
+  }
+
+  const passphrase = passphraseEnv || (!isProd ? '123456789' : undefined);
+  if (passphrase) {
+    httpsOptions.passphrase = passphrase;
+  }
+
+  return httpsOptions;
+};
+
+const createServer = () => {
+  const serverOptions = buildHttpsOptions();
+  const server = https.createServer(serverOptions, app).listen(PORT);
+
+  console.log(`https server is up and running on https://localhost:${PORT}`);
 
   return server;
 };
