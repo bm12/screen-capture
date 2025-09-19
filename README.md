@@ -1,24 +1,65 @@
-## [Demo](https://caller-siblings.ru/) on caller-siblings.ru (with streaming)
-## [Demo](https://bm12.github.io/screen-capture/public/index.html) on github-pages (just for capturing in file)
+# Медиацентр: запись экрана, трансляции и звонки
 
-## Running with HTTPS certificates
+Одно приложение покрывает три сценария прямо из браузера:
 
-The server always runs over HTTPS and reads certificates from the paths provided via
-environment variables. For production deployments obtain trusted certificates
-(for example with [Certbot](https://certbot.eff.org/)) and expose them to the
-application:
+* **Запись экрана в файл** — локально объединяем системный звук, микрофон и камеру и отдаём готовый WEBM.
+* **Трансляция экрана по коду комнаты** — ведущий получает ссылку, зрители смотрят через WebRTC без дополнительных плагинов.
+* **Комната видеозвонка** — создаём ссылку, обмениваемся SDP и ICE через встроенный сигналинг, управляем микрофоном/камерой и переключаем камеры на устройствах.
+
+## Требования
+
+* Node.js **20 или новее** (сервер и сборка фронтенда тестировались на Node 20).
+* npm 10.
+
+## Установка
 
 ```bash
-export SSL_KEY_PATH=/etc/letsencrypt/live/caller-siblings.ru/privkey.pem
-export SSL_CERT_PATH=/etc/letsencrypt/live/caller-siblings.ru/fullchain.pem
-# Optional: export SSL_CA_PATH and SSL_PASSPHRASE if your provider requires them
+npm install          # ставим бэкенд зависимости
+npm --prefix frontend install  # ставим зависимости интерфейса
+```
 
+## Сценарии npm
+
+| Скрипт | Назначение |
+| ------ | ---------- |
+| `npm start` | Соберёт фронтенд (если нужно) и запустит HTTPS‑сервер на `https://localhost:8000`. |
+| `npm run dev:client` | Запустит Vite Dev Server (порт 5173) для разработки UI. |
+| `npm run lint` | Линт серверного кода и фронтенда (ESLint + Prettier). |
+| `npm run build` | Сборка интерфейса в каталог `dist/`, который раздаёт Express. |
+
+> Сервер всегда стартует поверх HTTPS. Для production прокиньте `SSL_KEY_PATH` и `SSL_CERT_PATH`. В разработки используются само‑подписанные сертификаты из `./ssl`.
+
+## Структура проекта
+
+```
+server.js             # Express + WebSocket сигналинг
+frontend/             # Vite + React + Ant Design интерфейс
+  ├── src/features    # Фичи: запись, трансляция, звонок
+  ├── src/lib         # Переиспользуемые утилиты (WebRTC, микшеры и т.д.)
+  └── dist/           # Результат сборки (создаётся командой build)
+```
+
+## Журналирование
+
+Сервер выводит подробные шаги в консоль (подключения, рассылка сигналов, управление комнатами), что облегчает разбор проблем в продакшене. В клиентском коде дополнительно заложены лог‑сообщения в ключевых местах (инициализация WebRTC, захват медиа, переключение устройств).
+
+## HTTPS
+
+Для продакшена:
+
+```bash
+export SSL_KEY_PATH=/etc/letsencrypt/live/your-domain/privkey.pem
+export SSL_CERT_PATH=/etc/letsencrypt/live/your-domain/fullchain.pem
 npm run prod
 ```
 
-For local development the repository keeps self-signed certificates in `./ssl`.
-Running `npm start` will use them automatically:
+Локально достаточно `npm start` — будут использованы сертификаты из `./ssl`.
 
-```bash
-npm start
-```
+## Тесты
+
+Автоматических тестов нет. Проверьте основные сценарии вручную:
+
+1. Запись экрана: старт/стоп, наличие файла, работа микрофона и камеры.
+2. Трансляция: ведущий + несколько зрителей в разных окнах/браузерах.
+3. Звонок: два и более участников, переключение камер, отключение микрофона/видео.
+

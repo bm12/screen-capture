@@ -1,18 +1,39 @@
 {
   "name": "screen-capture",
   "version": "1.0.0",
-  "description": "",
+  "description": "Сервис записи экрана, трансляции и видеозвонков",
   "main": "server.js",
   "scripts": {
+    "prestart": "npm run build",
     "start": "node server.js",
-    "prod": "cross-env NODE_ENV=production node server.js"
+    "dev": "cross-env NODE_ENV=development node server.js",
+    "prod": "cross-env NODE_ENV=production node server.js",
+    "lint": "npm run lint:server && npm run lint:client",
+    "lint:server": "eslint .",
+    "lint:client": "npm --prefix frontend install && npm --prefix frontend run lint",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --check .",
+    "format:fix": "prettier --write .",
+    "build": "npm run build:client",
+    "build:client": "npm --prefix frontend install && npm --prefix frontend run build",
+    "dev:client": "npm --prefix frontend run dev -- --host"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "dependencies": {
-    "express": "^4.17.1",
-    "ws": "^7.3.0",
-    "cross-env": "^7.0.2"
+    "cross-env": "^7.0.3",
+    "express": "^4.21.1",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.36.0",
+    "eslint": "^9.35.0",
+    "eslint-config-prettier": "^9.1.0",
+    "globals": "^15.15.0",
+    "prettier": "^3.4.2"
   }
 }

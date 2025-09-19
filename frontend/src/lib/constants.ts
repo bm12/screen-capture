@@ -1,5 +1,4 @@
-// https://gist.github.com/sagivo/3a4b2f2c7ac6e1b5267c2f1f59ac6c6b
-export const iceServers = [
+export const iceServers: RTCIceServer[] = [
   { urls: 'stun:stun.services.mozilla.com' },
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun.ekiga.net' },
@@ -35,26 +34,41 @@ export const iceServers = [
   {
     urls: 'turn:numb.viagenie.ca',
     credential: 'muazkh',
-    username: 'webrtc@live.com'
+    username: 'webrtc@live.com',
   },
   {
     urls: 'turn:192.158.29.39:3478?transport=udp',
     credential: 'JZEOEt2V3Qb0y27GRntt2u2PAYA=',
-    username: '28224511:1379330808'
+    username: '28224511:1379330808',
   },
   {
     urls: 'turn:192.158.29.39:3478?transport=tcp',
     credential: 'JZEOEt2V3Qb0y27GRntt2u2PAYA=',
-    username: '28224511:1379330808'
+    username: '28224511:1379330808',
   },
   {
     urls: 'turn:turn.bistri.com:80',
     credential: 'homeo',
-    username: 'homeo'
+    username: 'homeo',
   },
   {
     urls: 'turn:turn.anyfirewall.com:443?transport=tcp',
     credential: 'webrtc',
-    username: 'webrtc'
+    username: 'webrtc',
   },
 ];
+
+export const RECORDER_MIME_TYPES = [
+  'video/webm;codecs=vp9,opus',
+  'video/webm;codecs=vp8,opus',
+  'video/webm',
+  'video/mp4;codecs=h264,aac',
+  'video/mp4;codecs=h264',
+  'video/mp4',
+];
+
+export const USE_NATIVE_SCREEN_RESOLUTION = true;
+
+export const DEFAULT_STREAM_FRAME_RATE = 60;
+
+export const generateRoomId = () => Math.random().toString(36).slice(2, 8).toUpperCase();
