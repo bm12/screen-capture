@@ -58,7 +58,14 @@ export const iceServers: RTCIceServer[] = [
   },
 ];
 
-export const RECORDER_MIME_TYPE = 'video/webm';
+export const RECORDER_MIME_TYPES = [
+  'video/webm;codecs=vp9,opus',
+  'video/webm;codecs=vp8,opus',
+  'video/webm',
+  'video/mp4;codecs=h264,aac',
+  'video/mp4;codecs=h264',
+  'video/mp4',
+];
 
 export const USE_NATIVE_SCREEN_RESOLUTION = true;
 

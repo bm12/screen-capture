@@ -23,9 +23,12 @@ export const CallPanel = () => {
         throw new Error('Server responded with an error');
       }
       const data = await response.json();
-      setCallId(data.roomId.toUpperCase());
+      const normalizedId = data.roomId.toUpperCase();
+      setCallId(normalizedId);
       setCallLink(data.url);
-      messageApi.success('Ссылка на звонок создана.');
+      console.log('[call-panel] Создана новая комната', { roomId: normalizedId, url: data.url });
+      messageApi.success('Ссылка на звонок создана. Подключаемся автоматически…');
+      navigate(`/call/${normalizedId}`);
     } catch (error) {
       console.error('Не удалось создать комнату', error);
       messageApi.error('Не удалось создать комнату. Попробуйте ещё раз.');
@@ -40,6 +43,7 @@ export const CallPanel = () => {
     }
     try {
       await navigator.clipboard.writeText(callLink);
+      console.log('[call-panel] Ссылка скопирована в буфер обмена');
       messageApi.success('Ссылка скопирована.');
     } catch (error) {
       console.error('Не удалось скопировать ссылку', error);
@@ -52,6 +56,7 @@ export const CallPanel = () => {
       messageApi.warning('Введите код комнаты.');
       return;
     }
+    console.log('[call-panel] Подключение к комнате по коду', { roomId: callId.toUpperCase() });
     navigate(`/call/${callId.toUpperCase()}`);
   };
 

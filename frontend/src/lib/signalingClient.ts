@@ -18,6 +18,12 @@ export class SignalingClient {
 
   private url: string;
 
+  private shouldReconnect = true;
+
+  private reconnectAttempts = 0;
+
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
   constructor(url: string = SignalingClient.buildUrl()) {
     this.url = url;
   }
@@ -36,6 +42,7 @@ export class SignalingClient {
       return this.openPromise;
     }
 
+    this.shouldReconnect = true;
     console.log('[signaling] Инициализация соединения', { url: this.url });
     this.openPromise = new Promise<void>((resolve, reject) => {
       const socket = new WebSocket(this.url);
@@ -44,6 +51,11 @@ export class SignalingClient {
       socket.addEventListener('open', () => {
         console.log('[signaling] Соединение установлено');
         this.emit('open');
+        this.reconnectAttempts = 0;
+        if (this.reconnectTimer) {
+          clearTimeout(this.reconnectTimer);
+          this.reconnectTimer = null;
+        }
         resolve();
       });
 
@@ -67,6 +79,9 @@ export class SignalingClient {
         this.emit('close', event);
         this.socket = null;
         this.openPromise = null;
+        if (this.shouldReconnect) {
+          this.scheduleReconnect();
+        }
       });
 
       socket.addEventListener('error', (event) => {
@@ -74,6 +89,9 @@ export class SignalingClient {
         this.emit('error', event);
         reject(event);
         this.openPromise = null;
+        if (this.shouldReconnect && (!this.socket || this.socket.readyState !== WebSocket.OPEN)) {
+          this.scheduleReconnect();
+        }
       });
     });
 
@@ -82,6 +100,10 @@ export class SignalingClient {
 
   getClientId() {
     return this.clientId;
+  }
+
+  isConnected() {
+    return Boolean(this.socket && this.socket.readyState === WebSocket.OPEN);
   }
 
   send<T>(type: string, payload: T) {
@@ -123,9 +145,37 @@ export class SignalingClient {
   close(code?: number, reason?: string) {
     if (this.socket) {
       console.log('[signaling] Закрытие соединения', { code, reason });
+      this.shouldReconnect = false;
+      if (this.reconnectTimer) {
+        clearTimeout(this.reconnectTimer);
+        this.reconnectTimer = null;
+      }
       this.socket.close(code, reason);
       this.socket = null;
       this.openPromise = null;
     }
+  }
+
+  private scheduleReconnect() {
+    if (!this.shouldReconnect || this.reconnectTimer) {
+      return;
+    }
+
+    const delay = Math.min(1000 * 2 ** this.reconnectAttempts, 10000);
+    this.reconnectAttempts += 1;
+    console.log('[signaling] Планируем переподключение', { delay, attempts: this.reconnectAttempts });
+
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.connect()
+        .then(() => {
+          console.log('[signaling] Соединение восстановлено после обрыва');
+          this.emit('reconnected');
+        })
+        .catch((error) => {
+          console.error('[signaling] Ошибка при переподключении', error);
+          this.scheduleReconnect();
+        });
+    }, delay);
   }
 }

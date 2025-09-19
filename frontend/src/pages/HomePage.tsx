@@ -6,6 +6,11 @@ import { CallPanel } from '../features/call/CallPanel';
 
 const items: TabsProps['items'] = [
   {
+    key: 'call',
+    label: 'Видеозвонок',
+    children: <CallPanel />,
+  },
+  {
     key: 'record',
     label: 'Запись экрана',
     children: <ScreenRecorderPanel />,
@@ -14,11 +19,6 @@ const items: TabsProps['items'] = [
     key: 'stream',
     label: 'Трансляция экрана',
     children: <StreamingPanel />,
-  },
-  {
-    key: 'call',
-    label: 'Видеозвонок',
-    children: <CallPanel />,
   },
 ];
 
@@ -32,7 +32,7 @@ export const HomePage = () => {
           создайте комнату для видеозвонка. Все инструменты работают прямо в браузере.
         </Typography.Paragraph>
       </div>
-      <Tabs items={items} defaultActiveKey="record" />
+      <Tabs items={items} defaultActiveKey="call" />
     </div>
   );
 };

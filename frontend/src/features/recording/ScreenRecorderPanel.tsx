@@ -24,7 +24,7 @@ import {
 import { AudioStreamMixer } from '../../lib/audioMixer';
 import { VideoStreamMixer } from '../../lib/videoMixer';
 import { createRecorder } from '../../lib/recorder';
-import { RECORDER_MIME_TYPE } from '../../lib/constants';
+import { RECORDER_MIME_TYPES } from '../../lib/constants';
 
 export const ScreenRecorderPanel = () => {
   const [includeSystemAudio, setIncludeSystemAudio] = useState(true);
@@ -186,6 +186,9 @@ export const ScreenRecorderPanel = () => {
         }
       }
 
+      if (typeof window.MediaRecorder === 'undefined') {
+        throw new Error('MediaRecorder API is not supported in this браузер');
+      }
       const composedStream = new MediaStream();
       addTracksToStream(videoSource.getVideoTracks(), composedStream);
 
@@ -210,8 +213,22 @@ export const ScreenRecorderPanel = () => {
         await previewVideoRef.current.play().catch(() => undefined);
       }
 
-      recorderRef.current = createRecorder({ stream: composedStream, mimeType: RECORDER_MIME_TYPE });
-      recorderRef.current.start();
+      const recorder = createRecorder({
+        stream: composedStream,
+        fallbackMimeTypes: RECORDER_MIME_TYPES,
+      });
+
+      if (!recorder.mimeType) {
+        console.warn('[recorder] Используется MIME по умолчанию (браузер не сообщил формат)');
+      } else {
+        console.log('[recorder] Выбран MIME-тип записи', { mimeType: recorder.mimeType });
+        if (recorder.mimeType.includes('mp4')) {
+          messageApi.info('Ваш браузер сохранит запись в формате MP4.');
+        }
+      }
+
+      recorderRef.current = recorder;
+      recorder.start();
 
       setIsRecording(true);
       messageApi.success('Запись началась. Когда закончите, нажмите «Остановить запись».');
@@ -234,7 +251,9 @@ export const ScreenRecorderPanel = () => {
 
     try {
       const result = await recorderRef.current.getResult();
-      const fileName = `screen-record-${dayjs().format('YYYY-MM-DD_HH-mm-ss')}.webm`;
+      const mimeType = recorderRef.current.mimeType;
+      const extension = mimeType && mimeType.includes('mp4') ? 'mp4' : 'webm';
+      const fileName = `screen-record-${dayjs().format('YYYY-MM-DD_HH-mm-ss')}.${extension}`;
       const url = URL.createObjectURL(result);
 
       if (downloadUrl) {
