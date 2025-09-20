@@ -138,7 +138,10 @@ const createServer = () => {
   return server;
 };
 
-const server = createServer();
+let server = null;
+if (process.env.NODE_ENV !== 'test') {
+  server = createServer();
+}
 
 const clients = new Map();
 const rooms = new Map();
@@ -373,38 +376,40 @@ const handleMessage = (clientId, rawMessage) => {
   }
 };
 
-const wssServer = new WebSocketServer({ server });
-log('WebSocket server started');
+if (server) {
+  const wssServer = new WebSocketServer({ server });
+  log('WebSocket server started');
 
-wssServer.on('connection', (socket, request) => {
-  const clientId = randomUUID();
-  clients.set(clientId, {
-    socket,
-    roomId: null,
-    mode: null,
-    role: null,
-    connectedAt: Date.now(),
-    ip: request.socket.remoteAddress,
+  wssServer.on('connection', (socket, request) => {
+    const clientId = randomUUID();
+    clients.set(clientId, {
+      socket,
+      roomId: null,
+      mode: null,
+      role: null,
+      connectedAt: Date.now(),
+      ip: request.socket.remoteAddress,
+    });
+
+    log('WebSocket client connected', { clientId, ip: request.socket.remoteAddress });
+
+    safeSend(socket, {
+      type: 'welcome',
+      payload: {
+        clientId,
+      },
+    });
+
+    socket.on('message', (message) => handleMessage(clientId, message));
+    socket.on('close', (code) => {
+      log('WebSocket client closed connection', { clientId, code });
+      disconnectClient(clientId);
+    });
+    socket.on('error', (error) => {
+      warn('WebSocket client error', { clientId, error: error.message });
+      disconnectClient(clientId);
+    });
   });
+}
 
-  log('WebSocket client connected', { clientId, ip: request.socket.remoteAddress });
-
-  safeSend(socket, {
-    type: 'welcome',
-    payload: {
-      clientId,
-    },
-  });
-
-  socket.on('message', (message) => handleMessage(clientId, message));
-  socket.on('close', (code) => {
-    log('WebSocket client closed connection', { clientId, code });
-    disconnectClient(clientId);
-  });
-  socket.on('error', (error) => {
-    warn('WebSocket client error', { clientId, error: error.message });
-    disconnectClient(clientId);
-  });
-});
-
-module.exports = { app, server };
+module.exports = { app, server, createServer };
