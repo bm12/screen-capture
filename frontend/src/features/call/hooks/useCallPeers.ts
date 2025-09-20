@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MutableRefObject } from 'react';
 import type { MessageInstance } from 'antd/es/message/interface';
 
-import { iceServers } from '../../../lib/constants';
+import { createPeerConnection as createRtcPeerConnection } from '../../../lib/peerConnection';
 import type { SignalEnvelope } from '../../../lib/types';
 import { useSignalingRoom } from '../../../lib/useSignalingRoom';
 
@@ -32,6 +32,7 @@ export const useCallPeers = ({
   const [status, setStatus] = useState<string>('Соединение устанавливается…');
 
   const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
+  const pendingConnectionsRef = useRef<Map<string, Promise<RTCPeerConnection>>>(new Map());
   const sendSignalRef = useRef<(targetClientId: string, signal: SignalEnvelope) => void>(() => {
     throw new Error('Сигнальное соединение ещё не готово.');
   });
@@ -48,6 +49,7 @@ export const useCallPeers = ({
       connection.close();
       peerConnectionsRef.current.delete(participantId);
     }
+    pendingConnectionsRef.current.delete(participantId);
     setRemoteParticipants((prev) => prev.filter((participant) => participant.id !== participantId));
   }, []);
 
@@ -84,60 +86,90 @@ export const useCallPeers = ({
   );
 
   const getOrCreateConnection = useCallback(
-    (participantId: string) => {
+    async (participantId: string) => {
       const existing = peerConnectionsRef.current.get(participantId);
       if (existing) {
         return existing;
       }
 
-      const localStream = localStreamRef.current;
-      const connection = new RTCPeerConnection({ iceServers });
-      if (localStream) {
-        localStream.getTracks().forEach((track) => connection.addTrack(track, localStream));
+      const pending = pendingConnectionsRef.current.get(participantId);
+      if (pending) {
+        return pending;
       }
 
-      connection.ontrack = (event) => {
-        const [remoteStream] = event.streams;
-        if (!remoteStream) {
-          return;
-        }
-        setRemoteParticipants((prev) => {
-          const others = prev.filter((participant) => participant.id !== participantId);
-          return [...others, { id: participantId, stream: remoteStream }];
-        });
-      };
-
-      connection.onicecandidate = (event) => {
-        if (!event.candidate) {
-          return;
-        }
-        const signal: SignalEnvelope = {
-          kind: 'candidate',
-          candidate: event.candidate.toJSON(),
-        };
+      const localStream = localStreamRef.current;
+      const connectionPromise = (async () => {
         try {
-          sendSignalRef.current(participantId, signal);
+          const connection = await createRtcPeerConnection({ uid: participantId });
+
+          if (localStream) {
+            localStream.getTracks().forEach((track) => connection.addTrack(track, localStream));
+          }
+
+          connection.ontrack = (event) => {
+            const [remoteStream] = event.streams;
+            if (!remoteStream) {
+              return;
+            }
+            setRemoteParticipants((prev) => {
+              const others = prev.filter((participant) => participant.id !== participantId);
+              return [...others, { id: participantId, stream: remoteStream }];
+            });
+          };
+
+          connection.onicecandidate = (event) => {
+            if (!event.candidate) {
+              return;
+            }
+            const signal: SignalEnvelope = {
+              kind: 'candidate',
+              candidate: event.candidate.toJSON(),
+            };
+            try {
+              sendSignalRef.current(participantId, signal);
+            } catch (error) {
+              console.error('[call] Не удалось отправить ICE-кандидата', error);
+            }
+          };
+
+          connection.onconnectionstatechange = () => {
+            const state = connection.connectionState;
+            if (state === 'failed' || state === 'disconnected' || state === 'closed') {
+              removeParticipant(participantId);
+            }
+          };
+
+          peerConnectionsRef.current.set(participantId, connection);
+          return connection;
         } catch (error) {
-          console.error('[call] Не удалось отправить ICE-кандидата', error);
+          console.error('[call] Не удалось создать WebRTC-соединение', {
+            participantId,
+            error,
+          });
+          if (!isUnmountedRef.current) {
+            messageApi.error('Не удалось установить соединение с участником. Попробуйте ещё раз.');
+          }
+          throw error;
+        } finally {
+          pendingConnectionsRef.current.delete(participantId);
         }
-      };
+      })();
 
-      connection.onconnectionstatechange = () => {
-        const state = connection.connectionState;
-        if (state === 'failed' || state === 'disconnected' || state === 'closed') {
-          removeParticipant(participantId);
-        }
-      };
-
-      peerConnectionsRef.current.set(participantId, connection);
-      return connection;
+      pendingConnectionsRef.current.set(participantId, connectionPromise);
+      return connectionPromise;
     },
-    [localStreamRef, removeParticipant],
+    [localStreamRef, messageApi, removeParticipant],
   );
 
   const createOffer = useCallback(
     async (participantId: string) => {
-      const connection = getOrCreateConnection(participantId);
+      const connection = await getOrCreateConnection(participantId).catch((error) => {
+        console.error('[call] Не удалось подготовить соединение для оффера', error);
+        return null;
+      });
+      if (!connection) {
+        return;
+      }
       const offer = await connection.createOffer();
       await connection.setLocalDescription(offer);
       const signal: SignalEnvelope = {
@@ -155,7 +187,13 @@ export const useCallPeers = ({
 
   const handleIncomingOffer = useCallback(
     async (participantId: string, description: RTCSessionDescriptionInit) => {
-      const connection = getOrCreateConnection(participantId);
+      const connection = await getOrCreateConnection(participantId).catch((error) => {
+        console.error('[call] Не удалось подготовить соединение для ответа', error);
+        return null;
+      });
+      if (!connection) {
+        return;
+      }
       await connection.setRemoteDescription(description);
       const answer = await connection.createAnswer();
       await connection.setLocalDescription(answer);
@@ -213,11 +251,16 @@ export const useCallPeers = ({
           await handleIncomingOffer(senderId, signal.description);
         }
         if (signal.description.type === 'answer') {
-          await peerConnectionsRef.current.get(senderId)?.setRemoteDescription(signal.description);
+          const connection =
+            peerConnectionsRef.current.get(senderId) ??
+            (await pendingConnectionsRef.current.get(senderId)?.catch(() => null));
+          await connection?.setRemoteDescription(signal.description);
         }
       } else if (signal.kind === 'candidate') {
-        await peerConnectionsRef.current
-          .get(senderId)
+        const connection =
+          peerConnectionsRef.current.get(senderId) ??
+          (await pendingConnectionsRef.current.get(senderId)?.catch(() => null));
+        await connection
           ?.addIceCandidate(signal.candidate)
           .catch((error) => console.error('[call] Ошибка при добавлении ICE-кандидата', error));
       }
@@ -230,6 +273,7 @@ export const useCallPeers = ({
       console.warn('[call] Сигнальное соединение закрыто. Попробуем переподключиться.');
       peerConnectionsRef.current.forEach((connection) => connection.close());
       peerConnectionsRef.current.clear();
+      pendingConnectionsRef.current.clear();
       if (!isUnmountedRef.current) {
         setStatus('Соединение потеряно. Пытаемся переподключиться…');
         setRemoteParticipants([]);
@@ -259,6 +303,7 @@ export const useCallPeers = ({
       await leaveSignalRoom(options);
       peerConnectionsRef.current.forEach((connection) => connection.close());
       peerConnectionsRef.current.clear();
+      pendingConnectionsRef.current.clear();
       if (!isUnmountedRef.current) {
         setRemoteParticipants([]);
         setStatus('Вы покинули комнату.');

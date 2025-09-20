@@ -2,7 +2,7 @@ import express from 'express';
 import fs from 'fs';
 import https, { Server as HttpsServer, ServerOptions as HttpsServerOptions } from 'https';
 import path from 'path';
-import { randomUUID } from 'crypto';
+import { createHmac, randomUUID } from 'crypto';
 import { IncomingMessage } from 'http';
 import { WebSocket, WebSocketServer, RawData as WebSocketRawData } from 'ws';
 
@@ -14,6 +14,26 @@ const projectRoot = path.resolve(serverDirectory, '..');
 const DIST_DIR = path.join(projectRoot, 'dist');
 const INDEX_HTML_PATH = path.join(DIST_DIR, 'index.html');
 const DEFAULT_SSL_DIR = path.join(projectRoot, 'ssl');
+
+const TURN_SECRET = process.env.TURN_SECRET;
+const TURN_HOST = process.env.TURN_HOST ?? 'turn.caller-siblings.ru';
+const TURN_REALM = process.env.TURN_REALM ?? 'caller-siblings.ru';
+const ICE_TTL_SEC = Number(process.env.ICE_TTL_SEC ?? 86_400);
+
+interface IceResponse {
+  username: string;
+  credential: string;
+  realm: string;
+  ttl: number;
+  iceServers: Array<
+    | { urls: string[] }
+    | { urls: string[]; username: string; credential: string }
+  >;
+}
+
+const ICE_CACHE_TTL_MS = 5 * 60 * 1000;
+
+const iceResponseCache: Map<string, { cachedAt: number; response: IceResponse }> = new Map();
 
 const log = (message: string, meta: Record<string, unknown> = {}): void => {
   const timestamp = new Date().toISOString();
@@ -104,6 +124,74 @@ app.use(express.static(DIST_DIR));
 app.get('/health', (req, res) => {
   log('Health check requested');
   res.json({ status: 'ok' });
+});
+
+const normalizeUid = (value: unknown): string => {
+  if (Array.isArray(value)) {
+    return normalizeUid(value[0]);
+  }
+
+  const raw =
+    typeof value === 'string'
+      ? value
+      : value !== undefined && value !== null
+      ? String(value)
+      : undefined;
+  const fallback = 'web';
+  if (!raw) {
+    return fallback;
+  }
+
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return fallback;
+  }
+
+  return trimmed.slice(0, 64);
+};
+
+const buildIceResponse = (uid: string, secret: string): IceResponse => {
+  const expiry = Math.floor(Date.now() / 1000) + ICE_TTL_SEC;
+  const username = `${expiry}:${uid}`;
+  const credential = createHmac('sha1', secret).update(username).digest('base64');
+
+  const stunUrls = [`stun:${TURN_HOST}:3478`, `stun:${TURN_HOST}:80`];
+  const turnUrls = [
+    `turn:${TURN_HOST}:3478?transport=udp`,
+    `turn:${TURN_HOST}:3478?transport=tcp`,
+    `turns:${TURN_HOST}:443?transport=tcp`,
+  ];
+
+  return {
+    username,
+    credential,
+    realm: TURN_REALM,
+    ttl: ICE_TTL_SEC,
+    iceServers: [
+      { urls: stunUrls },
+      { urls: turnUrls, username, credential },
+    ],
+  };
+};
+
+app.get('/ice', (req, res) => {
+  if (!TURN_SECRET) {
+    res.status(500).json({ error: 'TURN_SECRET not set' });
+    return;
+  }
+
+  const uid = normalizeUid(req.query.uid);
+  const now = Date.now();
+  const cached = iceResponseCache.get(uid);
+
+  if (cached && now - cached.cachedAt < ICE_CACHE_TTL_MS) {
+    res.json(cached.response);
+    return;
+  }
+
+  const response = buildIceResponse(uid, TURN_SECRET);
+  iceResponseCache.set(uid, { cachedAt: now, response });
+  res.json(response);
 });
 
 app.post('/api/calls', (req, res) => {

@@ -1,7 +1,7 @@
 import { Alert, Button, Card, Input, Space, Tag, Typography, message } from 'antd';
 import { VideoCameraOutlined } from '@ant-design/icons';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { iceServers } from '../../lib/constants';
+import { createPeerConnection as createRtcPeerConnection } from '../../lib/peerConnection';
 import type { SignalEnvelope } from '../../lib/types';
 import { useSignalingRoom } from '../../lib/useSignalingRoom';
 
@@ -28,47 +28,73 @@ export const StreamingViewer = ({ initialRoomId = '', autoStart = false }: Strea
   });
   const isUnmountedRef = useRef(false);
 
-  const createPeerConnection = useCallback(() => {
+  const pendingConnectionRef = useRef<Promise<RTCPeerConnection> | null>(null);
+
+  const ensurePeerConnection = useCallback(async () => {
     if (peerConnectionRef.current) {
       return peerConnectionRef.current;
     }
-    const connection = new RTCPeerConnection({ iceServers });
-    connection.ontrack = (event) => {
-      const stream = event.streams[0];
-      if (remoteVideoRef.current) {
-        remoteVideoRef.current.srcObject = stream;
-        remoteVideoRef.current.play().catch(() => undefined);
-      }
-    };
-    connection.onicecandidate = (event) => {
-      if (!event.candidate || !hostIdRef.current) {
-        return;
-      }
-      const signal: SignalEnvelope = {
-        kind: 'candidate',
-        candidate: event.candidate.toJSON(),
-      };
-      try {
-        sendSignalRef.current(hostIdRef.current, signal);
-      } catch (error) {
-        console.error('[viewer] Не удалось отправить ICE-кандидата ведущему', error);
-      }
-    };
-    connection.onconnectionstatechange = () => {
-      const state = connection.connectionState;
-      console.log('[viewer] Состояние соединения', state);
-      if (state === 'failed' || state === 'disconnected') {
-        setStatus('Соединение прервано. Попробуйте переподключиться.');
-      }
-    };
 
-    peerConnectionRef.current = connection;
-    return connection;
-  }, [setStatus]);
+    if (pendingConnectionRef.current) {
+      return pendingConnectionRef.current;
+    }
+
+    const connectionPromise = (async () => {
+      try {
+        const uid = hostIdRef.current ?? roomId ?? 'viewer';
+        const connection = await createRtcPeerConnection({ uid });
+        connection.ontrack = (event) => {
+          const stream = event.streams[0];
+          if (remoteVideoRef.current) {
+            remoteVideoRef.current.srcObject = stream;
+            remoteVideoRef.current.play().catch(() => undefined);
+          }
+        };
+        connection.onicecandidate = (event) => {
+          if (!event.candidate || !hostIdRef.current) {
+            return;
+          }
+          const signal: SignalEnvelope = {
+            kind: 'candidate',
+            candidate: event.candidate.toJSON(),
+          };
+          try {
+            sendSignalRef.current(hostIdRef.current, signal);
+          } catch (error) {
+            console.error('[viewer] Не удалось отправить ICE-кандидата ведущему', error);
+          }
+        };
+        connection.onconnectionstatechange = () => {
+          const state = connection.connectionState;
+          console.log('[viewer] Состояние соединения', state);
+          if (state === 'failed' || state === 'disconnected') {
+            setStatus('Соединение прервано. Попробуйте переподключиться.');
+          }
+        };
+
+        peerConnectionRef.current = connection;
+        return connection;
+      } catch (error) {
+        console.error('[viewer] Не удалось создать WebRTC соединение', error);
+        if (!isUnmountedRef.current) {
+          messageApi.error('Не удалось подключиться к ведущему. Попробуйте ещё раз.');
+        }
+        throw error;
+      } finally {
+        pendingConnectionRef.current = null;
+      }
+    })();
+
+    pendingConnectionRef.current = connectionPromise;
+    return connectionPromise;
+  }, [messageApi, roomId, setStatus]);
 
   const handleOffer = useCallback(
     async (description: RTCSessionDescriptionInit) => {
-      const connection = createPeerConnection();
+      const connection = await ensurePeerConnection().catch(() => null);
+      if (!connection) {
+        return;
+      }
       await connection.setRemoteDescription(description);
       const answer = await connection.createAnswer();
       await connection.setLocalDescription(answer);
@@ -87,7 +113,7 @@ export const StreamingViewer = ({ initialRoomId = '', autoStart = false }: Strea
         console.error('[viewer] Не удалось отправить answer ведущему', error);
       }
     },
-    [createPeerConnection],
+    [ensurePeerConnection],
   );
 
   const { joinRoom, leaveRoom, sendSignal } = useSignalingRoom({
@@ -116,6 +142,7 @@ export const StreamingViewer = ({ initialRoomId = '', autoStart = false }: Strea
         hostIdRef.current = null;
         peerConnectionRef.current?.close();
         peerConnectionRef.current = null;
+        pendingConnectionRef.current = null;
         if (remoteVideoRef.current) {
           remoteVideoRef.current.srcObject = null;
         }
@@ -131,7 +158,9 @@ export const StreamingViewer = ({ initialRoomId = '', autoStart = false }: Strea
         await handleOffer(signal.description);
       }
       if (signal.kind === 'candidate') {
-        await peerConnectionRef.current?.addIceCandidate(signal.candidate).catch((error) => {
+        const connection =
+          peerConnectionRef.current ?? (await pendingConnectionRef.current?.catch(() => null));
+        await connection?.addIceCandidate(signal.candidate).catch((error) => {
           console.error('[viewer] Ошибка добавления ICE-кандидата', error);
         });
       }
@@ -144,6 +173,7 @@ export const StreamingViewer = ({ initialRoomId = '', autoStart = false }: Strea
       console.warn('[viewer] Сигнальное соединение закрыто');
       peerConnectionRef.current?.close();
       peerConnectionRef.current = null;
+      pendingConnectionRef.current = null;
       if (!isUnmountedRef.current) {
         setIsWatching(false);
         setStatus('Сигналинг отключился. Пытаемся переподключиться…');
@@ -188,6 +218,7 @@ export const StreamingViewer = ({ initialRoomId = '', autoStart = false }: Strea
       }
       peerConnectionRef.current?.close();
       peerConnectionRef.current = null;
+      pendingConnectionRef.current = null;
       if (remoteVideoRef.current) {
         remoteVideoRef.current.srcObject = null;
       }

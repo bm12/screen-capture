@@ -22,7 +22,8 @@ import {
 } from '../../lib/media';
 import { AudioStreamMixer } from '../../lib/audioMixer';
 import { VideoStreamMixer } from '../../lib/videoMixer';
-import { generateRoomId, iceServers } from '../../lib/constants';
+import { generateRoomId } from '../../lib/constants';
+import { createPeerConnection as createRtcPeerConnection } from '../../lib/peerConnection';
 import type { SignalEnvelope } from '../../lib/types';
 import { useSignalingRoom } from '../../lib/useSignalingRoom';
 
@@ -49,6 +50,7 @@ export const StreamingHostPanel = () => {
   const audioMixerRef = useRef<AudioStreamMixer | null>(null);
   const videoMixerRef = useRef<VideoStreamMixer | null>(null);
   const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
+  const pendingConnectionsRef = useRef<Map<string, Promise<RTCPeerConnection>>>(new Map());
 
   const previewVideoRef = useRef<HTMLVideoElement | null>(null);
   const screenVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -71,6 +73,7 @@ export const StreamingHostPanel = () => {
       connection.close();
       peerConnectionsRef.current.delete(viewerId);
     }
+    pendingConnectionsRef.current.delete(viewerId);
   }, []);
 
   const stopAllPeerConnections = useCallback(() => {
@@ -80,6 +83,7 @@ export const StreamingHostPanel = () => {
       connection.close();
     });
     peerConnectionsRef.current.clear();
+    pendingConnectionsRef.current.clear();
   }, []);
 
   const cleanupStreams = useCallback(() => {
@@ -173,48 +177,85 @@ export const StreamingHostPanel = () => {
   }, [includeCamera, includeMicrophone, includeSystemAudio]);
 
   const createPeerConnection = useCallback(
-    (viewerId: string) => {
-    const stream = composedStreamRef.current;
-    if (!stream) {
-      throw new Error('Нет доступного медиапотока для трансляции');
-    }
-
-    const connection = new RTCPeerConnection({ iceServers });
-    stream.getTracks().forEach((track) => connection.addTrack(track, stream));
-
-    connection.onicecandidate = (event) => {
-      if (!event.candidate) {
-        return;
+    async (viewerId: string) => {
+      const existing = peerConnectionsRef.current.get(viewerId);
+      if (existing) {
+        return existing;
       }
-      const candidate: SignalEnvelope = {
-        kind: 'candidate',
-        candidate: event.candidate.toJSON(),
-      };
-      try {
-        sendSignalRef.current(viewerId, candidate);
-      } catch (error) {
-        console.error('[stream-host] Не удалось отправить ICE-кандидата зрителю', error);
-      }
-    };
 
-    connection.onconnectionstatechange = () => {
-      const state = connection.connectionState;
-      console.log('[stream-host] Состояние соединения', { viewerId, state });
-      if (state === 'failed' || state === 'disconnected' || state === 'closed') {
-        closePeerConnection(viewerId);
-        setViewerIds((prev) => prev.filter((id) => id !== viewerId));
+      const pending = pendingConnectionsRef.current.get(viewerId);
+      if (pending) {
+        return pending;
       }
-    };
 
-    peerConnectionsRef.current.set(viewerId, connection);
-    return connection;
+      const stream = composedStreamRef.current;
+      if (!stream) {
+        throw new Error('Нет доступного медиапотока для трансляции');
+      }
+
+      const connectionPromise = (async () => {
+        try {
+          const connection = await createRtcPeerConnection({ uid: viewerId });
+          stream.getTracks().forEach((track) => connection.addTrack(track, stream));
+
+          connection.onicecandidate = (event) => {
+            if (!event.candidate) {
+              return;
+            }
+            const candidate: SignalEnvelope = {
+              kind: 'candidate',
+              candidate: event.candidate.toJSON(),
+            };
+            try {
+              sendSignalRef.current(viewerId, candidate);
+            } catch (error) {
+              console.error('[stream-host] Не удалось отправить ICE-кандидата зрителю', error);
+            }
+          };
+
+          connection.onconnectionstatechange = () => {
+            const state = connection.connectionState;
+            console.log('[stream-host] Состояние соединения', { viewerId, state });
+            if (state === 'failed' || state === 'disconnected' || state === 'closed') {
+              closePeerConnection(viewerId);
+              setViewerIds((prev) => prev.filter((id) => id !== viewerId));
+            }
+          };
+
+          peerConnectionsRef.current.set(viewerId, connection);
+          return connection;
+        } catch (error) {
+          console.error('[stream-host] Не удалось создать WebRTC соединение', {
+            viewerId,
+            error,
+          });
+          if (!isUnmountedRef.current) {
+            messageApi.error('Не удалось установить соединение со зрителем. Попробуйте ещё раз.');
+          }
+          throw error;
+        } finally {
+          pendingConnectionsRef.current.delete(viewerId);
+        }
+      })();
+
+      pendingConnectionsRef.current.set(viewerId, connectionPromise);
+      return connectionPromise;
     },
-    [closePeerConnection],
+    [closePeerConnection, isUnmountedRef, messageApi, setViewerIds],
   );
 
   const createOfferForViewer = useCallback(
     async (viewerId: string) => {
-      const connection = createPeerConnection(viewerId);
+      const connection = await createPeerConnection(viewerId).catch((error) => {
+        console.error('[stream-host] Не удалось подготовить соединение для зрителя', {
+          viewerId,
+          error,
+        });
+        return null;
+      });
+      if (!connection) {
+        return;
+      }
       const offer = await connection.createOffer();
       await connection.setLocalDescription(offer);
 
