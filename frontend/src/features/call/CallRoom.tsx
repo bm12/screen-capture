@@ -18,14 +18,11 @@ import {
   VideoCameraOutlined,
 } from '@ant-design/icons';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { SignalingClient } from '../../lib/signalingClient';
 import { iceServers } from '../../lib/constants';
 import type {
-  PeerUpdatePayload,
-  RoomJoinedPayload,
   SignalEnvelope,
-  SignalMessagePayload,
 } from '../../lib/types';
+import { useSignalingRoom } from '../../lib/useSignalingRoom';
 
 const CALL_ROLE = 'participant';
 
@@ -74,12 +71,12 @@ export const CallRoom = ({ roomId }: CallRoomProps) => {
   const [status, setStatus] = useState<string>('Соединение устанавливается…');
   const [messageApi, contextHolder] = message.useMessage();
 
-  const signalingRef = useRef<SignalingClient | null>(null);
-  const subscriptionsRef = useRef<(() => void)[]>([]);
   const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
   const localStreamRef = useRef<MediaStream | null>(null);
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
-  const selfIdRef = useRef<string | null>(null);
+  const sendSignalRef = useRef<(targetClientId: string, signal: SignalEnvelope) => void>(() => {
+    throw new Error('Сигнальное соединение ещё не готово.');
+  });
   const desiredFacingModeRef = useRef<'user' | 'environment' | null>(null);
   const isUnmountedRef = useRef(false);
 
@@ -89,6 +86,20 @@ export const CallRoom = ({ roomId }: CallRoomProps) => {
     }
     return `${window.location.origin}/call/${roomId}`;
   }, [roomId]);
+
+  const removeParticipant = useCallback((participantId: string | null | undefined) => {
+    if (!participantId) {
+      return;
+    }
+    const connection = peerConnectionsRef.current.get(participantId);
+    if (connection) {
+      connection.onicecandidate = null;
+      connection.ontrack = null;
+      connection.close();
+      peerConnectionsRef.current.delete(participantId);
+    }
+    setRemoteParticipants((prev) => prev.filter((participant) => participant.id !== participantId));
+  }, []);
 
   const updatePeerSenders = useCallback((stream: MediaStream) => {
     peerConnectionsRef.current.forEach((connection, participantId) => {
@@ -216,107 +227,6 @@ export const CallRoom = ({ roomId }: CallRoomProps) => {
     }
   }, [activeVideoDeviceId, applyLocalStream, isCameraEnabled, isMicEnabled, messageApi, refreshDevices, updatePeerSenders]);
 
-  const attachListeners = (client: SignalingClient) => {
-    const roomJoined = client.on<RoomJoinedPayload>('room-joined', async (payload) => {
-      selfIdRef.current = client.getClientId();
-      console.log('[call] Успешно подключились к комнате', payload);
-      setStatus('Вы в комнате. Ждём других участников.');
-      for (const participant of payload.participants) {
-        await createOffer(participant.clientId);
-      }
-    });
-
-    const peerJoined = client.on<PeerUpdatePayload>('peer-joined', async (payload) => {
-      if (payload.clientId === selfIdRef.current) {
-        return;
-      }
-      console.log('[call] К комнате подключился участник', payload);
-      setStatus(`К комнате подключился новый участник (${payload.clientId.slice(0, 6)}).`);
-    });
-
-    const peerLeft = client.on<PeerUpdatePayload>('peer-left', (payload) => {
-      console.log('[call] Участник покинул комнату', payload);
-      removeParticipant(payload.clientId);
-    });
-
-    const signalListener = client.on<SignalMessagePayload>('signal', async (payload) => {
-      if (!payload || payload.senderId === selfIdRef.current) {
-        return;
-      }
-
-      console.log('[call] Получен сигнал от участника', payload);
-      const { senderId, signal } = payload;
-      if (signal.kind === 'description') {
-        if (signal.description.type === 'offer') {
-          await handleIncomingOffer(senderId, signal.description);
-        }
-        if (signal.description.type === 'answer') {
-          await peerConnectionsRef.current.get(senderId)?.setRemoteDescription(signal.description);
-        }
-      } else if (signal.kind === 'candidate') {
-        await peerConnectionsRef.current
-          .get(senderId)
-          ?.addIceCandidate(signal.candidate)
-          .catch((error) => console.error('[call] Ошибка при добавлении ICE-кандидата', error));
-      }
-    });
-
-    const errorListener = client.on('error', (payload) => {
-      console.error('[call] Ошибка сигналинга', payload);
-      messageApi.error('Произошла ошибка сигналинга. Попробуйте переподключиться.');
-    });
-
-    const closeListener = client.on('close', () => {
-      console.warn('[call] Сигнальное соединение закрыто. Попробуем переподключиться.');
-      selfIdRef.current = null;
-      setStatus('Соединение потеряно. Пытаемся переподключиться…');
-      peerConnectionsRef.current.forEach((connection) => connection.close());
-      peerConnectionsRef.current.clear();
-      setRemoteParticipants([]);
-    });
-
-    const reconnectedListener = client.on('reconnected', async () => {
-      console.log('[call] Сигналинг переподключился. Повторный вход в комнату.');
-      setStatus('Соединение восстановлено. Переподключаемся к комнате…');
-      try {
-        await joinRoom();
-      } catch (error) {
-        console.error('[call] Ошибка при повторном подключении к комнате', error);
-        messageApi.error('Не удалось переподключиться к звонку. Попробуйте обновить страницу.');
-      }
-    });
-
-    subscriptionsRef.current.push(
-      roomJoined,
-      peerJoined,
-      peerLeft,
-      signalListener,
-      errorListener,
-      closeListener,
-      reconnectedListener,
-    );
-  };
-
-  const detachListeners = () => {
-    subscriptionsRef.current.forEach((unsubscribe) => unsubscribe());
-    subscriptionsRef.current = [];
-  };
-
-  const ensureSignaling = async () => {
-    if (!signalingRef.current) {
-      signalingRef.current = new SignalingClient();
-      attachListeners(signalingRef.current);
-    }
-    await signalingRef.current.connect();
-    return signalingRef.current;
-  };
-
-  const joinRoom = async () => {
-    const client = await ensureSignaling();
-    console.log('[call] Отправляем запрос на присоединение к комнате', { roomId });
-    client.send('join-room', { roomId, mode: 'call', role: CALL_ROLE });
-  };
-
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
@@ -342,7 +252,7 @@ export const CallRoom = ({ roomId }: CallRoomProps) => {
     };
   }, [restartLocalStream]);
 
-  const setupLocalStream = async () => {
+  const setupLocalStream = useCallback(async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: true,
@@ -358,105 +268,173 @@ export const CallRoom = ({ roomId }: CallRoomProps) => {
     }
 
     await refreshDevices();
-  };
+  }, [applyLocalStream, messageApi, refreshDevices]);
 
-  const getOrCreateConnection = (participantId: string) => {
-    const existing = peerConnectionsRef.current.get(participantId);
-    if (existing) {
-      return existing;
-    }
-
-    const localStream = localStreamRef.current;
-    const connection = new RTCPeerConnection({ iceServers });
-    if (localStream) {
-      localStream.getTracks().forEach((track) => connection.addTrack(track, localStream));
-    }
-
-    connection.ontrack = (event) => {
-      const [remoteStream] = event.streams;
-      if (!remoteStream) {
-        return;
+  const getOrCreateConnection = useCallback(
+    (participantId: string) => {
+      const existing = peerConnectionsRef.current.get(participantId);
+      if (existing) {
+        return existing;
       }
-      setRemoteParticipants((prev) => {
-        const others = prev.filter((participant) => participant.id !== participantId);
-        return [...others, { id: participantId, stream: remoteStream }];
-      });
-    };
 
-    connection.onicecandidate = (event) => {
-      if (!event.candidate || !signalingRef.current) {
-        return;
+      const localStream = localStreamRef.current;
+      const connection = new RTCPeerConnection({ iceServers });
+      if (localStream) {
+        localStream.getTracks().forEach((track) => connection.addTrack(track, localStream));
       }
-      const signal: SignalEnvelope = {
-        kind: 'candidate',
-        candidate: event.candidate.toJSON(),
+
+      connection.ontrack = (event) => {
+        const [remoteStream] = event.streams;
+        if (!remoteStream) {
+          return;
+        }
+        setRemoteParticipants((prev) => {
+          const others = prev.filter((participant) => participant.id !== participantId);
+          return [...others, { id: participantId, stream: remoteStream }];
+        });
       };
-      signalingRef.current.send('signal', {
-        roomId,
-        targetClientId: participantId,
-        signal,
-      });
-    };
 
-    connection.onconnectionstatechange = () => {
-      const state = connection.connectionState;
-      if (state === 'failed' || state === 'disconnected' || state === 'closed') {
-        removeParticipant(participantId);
-      }
-    };
+      connection.onicecandidate = (event) => {
+        if (!event.candidate) {
+          return;
+        }
+        const signal: SignalEnvelope = {
+          kind: 'candidate',
+          candidate: event.candidate.toJSON(),
+        };
+        try {
+          sendSignalRef.current(participantId, signal);
+        } catch (error) {
+          console.error('[call] Не удалось отправить ICE-кандидата', error);
+        }
+      };
 
-    peerConnectionsRef.current.set(participantId, connection);
-    return connection;
-  };
+      connection.onconnectionstatechange = () => {
+        const state = connection.connectionState;
+        if (state === 'failed' || state === 'disconnected' || state === 'closed') {
+          removeParticipant(participantId);
+        }
+      };
 
-  const createOffer = async (participantId: string) => {
-    if (participantId === selfIdRef.current) {
-      return;
-    }
-    const connection = getOrCreateConnection(participantId);
-    const offer = await connection.createOffer();
-    await connection.setLocalDescription(offer);
-    signalingRef.current?.send('signal', {
-      roomId,
-      targetClientId: participantId,
-      signal: {
+      peerConnectionsRef.current.set(participantId, connection);
+      return connection;
+    },
+    [removeParticipant],
+  );
+
+  const createOffer = useCallback(
+    async (participantId: string) => {
+      const connection = getOrCreateConnection(participantId);
+      const offer = await connection.createOffer();
+      await connection.setLocalDescription(offer);
+      const signal: SignalEnvelope = {
         kind: 'description',
         description: offer,
-      },
-    });
-  };
+      };
+      try {
+        sendSignalRef.current(participantId, signal);
+      } catch (error) {
+        console.error('[call] Не удалось отправить оффер участнику', error);
+      }
+    },
+    [getOrCreateConnection],
+  );
 
-  const handleIncomingOffer = async (
-    participantId: string,
-    description: RTCSessionDescriptionInit,
-  ) => {
-    const connection = getOrCreateConnection(participantId);
-    await connection.setRemoteDescription(description);
-    const answer = await connection.createAnswer();
-    await connection.setLocalDescription(answer);
-    signalingRef.current?.send('signal', {
-      roomId,
-      targetClientId: participantId,
-      signal: {
+  const handleIncomingOffer = useCallback(
+    async (participantId: string, description: RTCSessionDescriptionInit) => {
+      const connection = getOrCreateConnection(participantId);
+      await connection.setRemoteDescription(description);
+      const answer = await connection.createAnswer();
+      await connection.setLocalDescription(answer);
+      const signal: SignalEnvelope = {
         kind: 'description',
         description: answer,
-      },
-    });
-  };
+      };
+      try {
+        sendSignalRef.current(participantId, signal);
+      } catch (error) {
+        console.error('[call] Не удалось отправить answer участнику', error);
+      }
+    },
+    [getOrCreateConnection],
+  );
 
-  const removeParticipant = (participantId: string | null | undefined) => {
-    if (!participantId) {
-      return;
-    }
-    const connection = peerConnectionsRef.current.get(participantId);
-    if (connection) {
-      connection.onicecandidate = null;
-      connection.ontrack = null;
-      connection.close();
-      peerConnectionsRef.current.delete(participantId);
-    }
-    setRemoteParticipants((prev) => prev.filter((participant) => participant.id !== participantId));
-  };
+  const { joinRoom, leaveRoom, sendSignal } = useSignalingRoom({
+    roomId,
+    mode: 'call',
+    role: CALL_ROLE,
+    onRoomJoined: async (payload, context) => {
+      console.log('[call] Успешно подключились к комнате', payload);
+      if (!isUnmountedRef.current) {
+        setStatus('Вы в комнате. Ждём других участников.');
+      }
+      for (const participant of payload.participants) {
+        if (participant.clientId === context.selfId) {
+          continue;
+        }
+        await createOffer(participant.clientId);
+      }
+    },
+    onPeerJoined: async (payload, context) => {
+      if (payload.clientId === context.selfId) {
+        return;
+      }
+      console.log('[call] К комнате подключился участник', payload);
+      if (!isUnmountedRef.current) {
+        setStatus(`К комнате подключился новый участник (${payload.clientId.slice(0, 6)}).`);
+      }
+    },
+    onPeerLeft: async (payload) => {
+      console.log('[call] Участник покинул комнату', payload);
+      removeParticipant(payload.clientId);
+    },
+    onSignal: async (payload, context) => {
+      if (!payload || payload.senderId === context.selfId) {
+        return;
+      }
+
+      console.log('[call] Получен сигнал от участника', payload);
+      const { senderId, signal } = payload;
+      if (signal.kind === 'description') {
+        if (signal.description.type === 'offer') {
+          await handleIncomingOffer(senderId, signal.description);
+        }
+        if (signal.description.type === 'answer') {
+          await peerConnectionsRef.current.get(senderId)?.setRemoteDescription(signal.description);
+        }
+      } else if (signal.kind === 'candidate') {
+        await peerConnectionsRef.current
+          .get(senderId)
+          ?.addIceCandidate(signal.candidate)
+          .catch((error) => console.error('[call] Ошибка при добавлении ICE-кандидата', error));
+      }
+    },
+    onError: async (payload) => {
+      console.error('[call] Ошибка сигналинга', payload);
+      messageApi.error('Произошла ошибка сигналинга. Попробуйте переподключиться.');
+    },
+    onClose: async () => {
+      console.warn('[call] Сигнальное соединение закрыто. Попробуем переподключиться.');
+      peerConnectionsRef.current.forEach((connection) => connection.close());
+      peerConnectionsRef.current.clear();
+      if (!isUnmountedRef.current) {
+        setStatus('Соединение потеряно. Пытаемся переподключиться…');
+        setRemoteParticipants([]);
+      }
+    },
+    onReconnected: async () => {
+      console.log('[call] Сигналинг переподключился. Повторный вход в комнату.');
+      if (!isUnmountedRef.current) {
+        setStatus('Соединение восстановлено. Переподключаемся к комнате…');
+      }
+    },
+    onReconnectionFailed: async (error) => {
+      console.error('[call] Ошибка при повторном подключении к комнате', error);
+      messageApi.error('Не удалось переподключиться к звонку. Попробуйте обновить страницу.');
+    },
+  });
+
+  sendSignalRef.current = sendSignal;
 
   const toggleMicrophone = () => {
     const stream = localStreamRef.current;
@@ -618,6 +596,7 @@ export const CallRoom = ({ roomId }: CallRoomProps) => {
     const bootstrap = async () => {
       setStatus('Подключаемся к комнате…');
       await setupLocalStream();
+      console.log('[call] Отправляем запрос на присоединение к комнате', { roomId });
       await joinRoom();
     };
 
@@ -628,19 +607,17 @@ export const CallRoom = ({ roomId }: CallRoomProps) => {
       messageApi.error('Не удалось подключиться к звонку. Попробуйте обновить страницу.');
     });
 
-    const peerConnections = peerConnectionsRef.current;
+    const connections = peerConnectionsRef.current;
+
     return () => {
       isUnmountedRef.current = true;
-      peerConnections.forEach((connection) => connection.close());
-      peerConnections.clear();
+      connections.forEach((connection) => connection.close());
+      connections.clear();
       localStreamRef.current?.getTracks().forEach((track) => track.stop());
       localStreamRef.current = null;
-      detachListeners();
-      signalingRef.current?.send('leave-room', {});
-      signalingRef.current?.close();
+      leaveRoom({ close: true });
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roomId]);
+  }, [joinRoom, leaveRoom, messageApi, roomId, setupLocalStream]);
 
   const participantsCount = remoteParticipants.length + 1;
 
