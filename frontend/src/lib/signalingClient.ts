@@ -29,8 +29,22 @@ export class SignalingClient {
   }
 
   static buildUrl() {
-    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    const protocol = SignalingClient.resolveProtocol();
+    const envUrl = import.meta.env.VITE_SIGNALING_URL?.trim();
+
+    if (envUrl) {
+      if (/^wss?:\/\//i.test(envUrl)) {
+        return envUrl;
+      }
+
+      return `${protocol}://${envUrl}`;
+    }
+
     return `${protocol}://${window.location.host}`;
+  }
+
+  private static resolveProtocol() {
+    return window.location.protocol === 'https:' ? 'wss' : 'ws';
   }
 
   async connect() {
