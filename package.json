@@ -17,7 +17,9 @@
     "build": "npm run build:client",
     "build:client": "npm --prefix frontend install && npm --prefix frontend run build",
     "dev:client": "npm --prefix frontend run dev -- --host",
-    "test:server": "vitest --run --config vitest.server.config.ts"
+    "test:server": "vitest --run --config vitest.server.config.ts",
+    "test:client": "npm --prefix frontend run test",
+    "test": "npm run test:server && npm run test:client"
   },
   "keywords": [],
   "author": "",

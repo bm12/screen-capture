@@ -22,6 +22,10 @@ jobs:
         run: npm ci
       - name: Install frontend dependencies
         run: npm --prefix frontend install
+      - name: Test server
+        run: npm run test:server
+      - name: Test client
+        run: npm run test:client
       - name: Lint
         run: npm run lint
       - name: Build
