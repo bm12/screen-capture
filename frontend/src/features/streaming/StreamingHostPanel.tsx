@@ -11,7 +11,7 @@ import {
   message,
 } from 'antd';
 import { CopyOutlined, ReloadOutlined, UserSwitchOutlined } from '@ant-design/icons';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   addTracksToStream,
   getCameraImageSizes,
@@ -22,14 +22,9 @@ import {
 } from '../../lib/media';
 import { AudioStreamMixer } from '../../lib/audioMixer';
 import { VideoStreamMixer } from '../../lib/videoMixer';
-import { SignalingClient } from '../../lib/signalingClient';
 import { generateRoomId, iceServers } from '../../lib/constants';
-import type {
-  PeerUpdatePayload,
-  RoomJoinedPayload,
-  SignalEnvelope,
-  SignalMessagePayload,
-} from '../../lib/types';
+import type { SignalEnvelope } from '../../lib/types';
+import { useSignalingRoom } from '../../lib/useSignalingRoom';
 
 const STREAM_ROLE_HOST = 'host';
 const STREAM_ROLE_VIEWER = 'viewer';
@@ -45,9 +40,9 @@ export const StreamingHostPanel = () => {
 
   const [messageApi, contextHolder] = message.useMessage();
 
-  const signalingRef = useRef<SignalingClient | null>(null);
-  const signalingSubscriptionsRef = useRef<(() => void)[]>([]);
-  const listenersAttachedRef = useRef(false);
+  const sendSignalRef = useRef<(targetClientId: string, signal: SignalEnvelope) => void>(() => {
+    throw new Error('Сигнальное соединение ещё не готово.');
+  });
   const screenStreamRef = useRef<MediaStream | null>(null);
   const userStreamRef = useRef<MediaStream | null>(null);
   const composedStreamRef = useRef<MediaStream | null>(null);
@@ -59,6 +54,7 @@ export const StreamingHostPanel = () => {
   const screenVideoRef = useRef<HTMLVideoElement | null>(null);
   const cameraVideoRef = useRef<HTMLVideoElement | null>(null);
   const canvasContainerRef = useRef<HTMLDivElement | null>(null);
+  const isUnmountedRef = useRef(false);
 
   const shareLink = useMemo(() => {
     if (typeof window === 'undefined') {
@@ -67,95 +63,7 @@ export const StreamingHostPanel = () => {
     return `${window.location.origin}/stream/${roomId}`;
   }, [roomId]);
 
-  const ensureSignaling = async () => {
-    if (!signalingRef.current) {
-      signalingRef.current = new SignalingClient();
-    }
-    await signalingRef.current.connect();
-
-    if (!listenersAttachedRef.current) {
-      attachSignalingListeners(signalingRef.current);
-    }
-
-    return signalingRef.current;
-  };
-
-  const attachSignalingListeners = (client: SignalingClient) => {
-    const roomJoined = client.on<RoomJoinedPayload>('room-joined', (payload) => {
-      console.log('[stream-host] Подключены к комнате', payload);
-      const currentViewers = payload.participants
-        .filter((participant) => participant.role === STREAM_ROLE_VIEWER)
-        .map((participant) => participant.clientId);
-      setViewerIds(currentViewers);
-      currentViewers.forEach((viewerId) => {
-        createOfferForViewer(viewerId).catch((error) =>
-          console.error('[stream-host] Не удалось отправить оффер существующему зрителю', error),
-        );
-      });
-    });
-
-    const peerJoined = client.on<PeerUpdatePayload>('peer-joined', async (payload) => {
-      console.log('[stream-host] К комнате подключился участник', payload);
-      if (payload.role !== STREAM_ROLE_VIEWER) {
-        return;
-      }
-      setViewerIds((prev) => Array.from(new Set([...prev, payload.clientId])));
-      await createOfferForViewer(payload.clientId);
-    });
-
-    const peerLeft = client.on<PeerUpdatePayload>('peer-left', (payload) => {
-      console.log('[stream-host] Участник покинул комнату', payload);
-      if (payload.clientId) {
-        closePeerConnection(payload.clientId);
-        setViewerIds((prev) => prev.filter((id) => id !== payload.clientId));
-      }
-    });
-
-    const signalListener = client.on<SignalMessagePayload>('signal', async (payload) => {
-      if (!payload || !payload.senderId) {
-        return;
-      }
-
-      const { senderId, signal } = payload;
-      if (signal.kind === 'description' && signal.description.type === 'answer') {
-        const connection = peerConnectionsRef.current.get(senderId);
-        if (!connection) {
-          console.warn('[stream-host] Не найдено соединение для зрителя', senderId);
-          return;
-        }
-        await connection.setRemoteDescription(signal.description);
-      }
-
-      if (signal.kind === 'candidate') {
-        const connection = peerConnectionsRef.current.get(senderId);
-        if (!connection) {
-          console.warn('[stream-host] Не найдено соединение для добавления ICE', senderId);
-          return;
-        }
-        try {
-          await connection.addIceCandidate(signal.candidate);
-        } catch (error) {
-          console.error('[stream-host] Ошибка при добавлении ICE-кандидата', error);
-        }
-      }
-    });
-
-    const errorListener = client.on('error', (payload) => {
-      console.error('[stream-host] Ошибка сигналинга', payload);
-      messageApi.error('Ошибка сигналинга. Попробуйте перезапустить трансляцию.');
-    });
-
-    signalingSubscriptionsRef.current.push(roomJoined, peerJoined, peerLeft, signalListener, errorListener);
-    listenersAttachedRef.current = true;
-  };
-
-  const detachSignalingListeners = () => {
-    signalingSubscriptionsRef.current.forEach((unsubscribe) => unsubscribe());
-    signalingSubscriptionsRef.current = [];
-    listenersAttachedRef.current = false;
-  };
-
-  const closePeerConnection = (viewerId: string) => {
+  const closePeerConnection = useCallback((viewerId: string) => {
     const connection = peerConnectionsRef.current.get(viewerId);
     if (connection) {
       connection.onicecandidate = null;
@@ -163,18 +71,18 @@ export const StreamingHostPanel = () => {
       connection.close();
       peerConnectionsRef.current.delete(viewerId);
     }
-  };
+  }, []);
 
-  const stopAllPeerConnections = () => {
+  const stopAllPeerConnections = useCallback(() => {
     peerConnectionsRef.current.forEach((connection) => {
       connection.onicecandidate = null;
       connection.ontrack = null;
       connection.close();
     });
     peerConnectionsRef.current.clear();
-  };
+  }, []);
 
-  const cleanupStreams = () => {
+  const cleanupStreams = useCallback(() => {
     stopStream(screenStreamRef.current);
     stopStream(userStreamRef.current);
     stopStream(composedStreamRef.current);
@@ -188,9 +96,9 @@ export const StreamingHostPanel = () => {
     if (previewVideoRef.current) {
       previewVideoRef.current.srcObject = null;
     }
-  };
+  }, []);
 
-  const createBaseStream = async () => {
+  const createBaseStream = useCallback(async () => {
     const screenSizes = getScreenSizes();
     const displayStream = await getDisplayMedia(includeSystemAudio, screenSizes);
     const userStream = await getUserMedia(includeMicrophone, includeCamera);
@@ -262,9 +170,10 @@ export const StreamingHostPanel = () => {
       previewVideoRef.current.playsInline = true;
       await previewVideoRef.current.play().catch(() => undefined);
     }
-  };
+  }, [includeCamera, includeMicrophone, includeSystemAudio]);
 
-  const createPeerConnection = (viewerId: string) => {
+  const createPeerConnection = useCallback(
+    (viewerId: string) => {
     const stream = composedStreamRef.current;
     if (!stream) {
       throw new Error('Нет доступного медиапотока для трансляции');
@@ -274,18 +183,18 @@ export const StreamingHostPanel = () => {
     stream.getTracks().forEach((track) => connection.addTrack(track, stream));
 
     connection.onicecandidate = (event) => {
-      if (!event.candidate || !signalingRef.current) {
+      if (!event.candidate) {
         return;
       }
       const candidate: SignalEnvelope = {
         kind: 'candidate',
         candidate: event.candidate.toJSON(),
       };
-      signalingRef.current.send('signal', {
-        roomId,
-        targetClientId: viewerId,
-        signal: candidate,
-      });
+      try {
+        sendSignalRef.current(viewerId, candidate);
+      } catch (error) {
+        console.error('[stream-host] Не удалось отправить ICE-кандидата зрителю', error);
+      }
     };
 
     connection.onconnectionstatechange = () => {
@@ -299,42 +208,124 @@ export const StreamingHostPanel = () => {
 
     peerConnectionsRef.current.set(viewerId, connection);
     return connection;
-  };
+    },
+    [closePeerConnection],
+  );
 
-  const createOfferForViewer = async (viewerId: string) => {
-    if (!signalingRef.current) {
-      console.warn('[stream-host] Нет сигналинга для отправки оффера');
-      return;
-    }
-    const connection = createPeerConnection(viewerId);
-    const offer = await connection.createOffer();
-    await connection.setLocalDescription(offer);
+  const createOfferForViewer = useCallback(
+    async (viewerId: string) => {
+      const connection = createPeerConnection(viewerId);
+      const offer = await connection.createOffer();
+      await connection.setLocalDescription(offer);
 
-    const signal: SignalEnvelope = {
-      kind: 'description',
-      description: offer,
-    };
+      const signal: SignalEnvelope = {
+        kind: 'description',
+        description: offer,
+      };
 
-    signalingRef.current.send('signal', {
-      roomId,
-      targetClientId: viewerId,
-      signal,
-    });
-  };
+      try {
+        sendSignalRef.current(viewerId, signal);
+      } catch (error) {
+        console.error('[stream-host] Не удалось отправить оффер зрителю', error);
+      }
+    },
+    [createPeerConnection],
+  );
 
-  const startStreaming = async () => {
+  const { joinRoom, leaveRoom, sendSignal } = useSignalingRoom({
+    roomId,
+    mode: 'stream',
+    role: STREAM_ROLE_HOST,
+    onRoomJoined: async (payload) => {
+      console.log('[stream-host] Подключены к комнате', payload);
+      const currentViewers = payload.participants
+        .filter((participant) => participant.role === STREAM_ROLE_VIEWER)
+        .map((participant) => participant.clientId);
+      if (!isUnmountedRef.current) {
+        setViewerIds(currentViewers);
+      }
+      for (const viewerId of currentViewers) {
+        await createOfferForViewer(viewerId);
+      }
+    },
+    onPeerJoined: async (payload) => {
+      console.log('[stream-host] К комнате подключился участник', payload);
+      if (payload.role !== STREAM_ROLE_VIEWER) {
+        return;
+      }
+      setViewerIds((prev) => Array.from(new Set([...prev, payload.clientId])));
+      await createOfferForViewer(payload.clientId);
+    },
+    onPeerLeft: async (payload) => {
+      console.log('[stream-host] Участник покинул комнату', payload);
+      if (payload.clientId) {
+        closePeerConnection(payload.clientId);
+        setViewerIds((prev) => prev.filter((id) => id !== payload.clientId));
+      }
+    },
+    onSignal: async (payload) => {
+      if (!payload || !payload.senderId) {
+        return;
+      }
+
+      const { senderId, signal } = payload;
+      if (signal.kind === 'description' && signal.description.type === 'answer') {
+        const connection = peerConnectionsRef.current.get(senderId);
+        if (!connection) {
+          console.warn('[stream-host] Не найдено соединение для зрителя', senderId);
+          return;
+        }
+        await connection.setRemoteDescription(signal.description);
+      }
+
+      if (signal.kind === 'candidate') {
+        const connection = peerConnectionsRef.current.get(senderId);
+        if (!connection) {
+          console.warn('[stream-host] Не найдено соединение для добавления ICE', senderId);
+          return;
+        }
+        try {
+          await connection.addIceCandidate(signal.candidate);
+        } catch (error) {
+          console.error('[stream-host] Ошибка при добавлении ICE-кандидата', error);
+        }
+      }
+    },
+    onError: async (payload) => {
+      console.error('[stream-host] Ошибка сигналинга', payload);
+      messageApi.error('Ошибка сигналинга. Попробуйте перезапустить трансляцию.');
+    },
+    onClose: async () => {
+      console.warn('[stream-host] Сигнальное соединение закрыто');
+      stopAllPeerConnections();
+      if (!isUnmountedRef.current) {
+        setViewerIds([]);
+        messageApi.warning('Соединение сигналинга потеряно. Пытаемся переподключиться…');
+      }
+    },
+    onReconnected: async () => {
+      console.log('[stream-host] Сигналинг переподключился');
+      if (!isUnmountedRef.current) {
+        messageApi.info('Сигналинг восстановлен. Переподключаем зрителей…');
+      }
+    },
+    onReconnectionFailed: async (error) => {
+      console.error('[stream-host] Не удалось переподключиться к сигналингу', error);
+      messageApi.error('Не удалось восстановить сигналинг. Попробуйте перезапустить трансляцию.');
+    },
+  });
+
+  sendSignalRef.current = sendSignal;
+
+  const startStreaming = useCallback(async () => {
     if (isStreaming) {
       return;
     }
     setIsLoading(true);
     try {
       await createBaseStream();
-      await ensureSignaling();
-      signalingRef.current?.send('join-room', {
-        roomId,
-        mode: 'stream',
-        role: STREAM_ROLE_HOST,
-      });
+      console.log('[stream-host] Отправляем запрос на присоединение к комнате', { roomId });
+      await joinRoom();
       setIsStreaming(true);
       messageApi.success('Трансляция запущена. Поделитесь ссылкой со зрителями.');
     } catch (error) {
@@ -344,19 +335,19 @@ export const StreamingHostPanel = () => {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [createBaseStream, isStreaming, joinRoom, messageApi, roomId, cleanupStreams]);
 
-  const stopStreaming = () => {
+  const stopStreaming = useCallback(() => {
     if (!isStreaming) {
       return;
     }
-    signalingRef.current?.send('leave-room', {});
+    leaveRoom();
     stopAllPeerConnections();
     cleanupStreams();
     setViewerIds([]);
     setIsStreaming(false);
     messageApi.info('Трансляция остановлена.');
-  };
+  }, [cleanupStreams, isStreaming, leaveRoom, messageApi, stopAllPeerConnections]);
 
   const copyLink = async () => {
     try {
@@ -369,13 +360,13 @@ export const StreamingHostPanel = () => {
   };
 
   useEffect(() => {
+    isUnmountedRef.current = false;
     return () => {
+      isUnmountedRef.current = true;
       stopStreaming();
-      detachSignalingListeners();
-      signalingRef.current?.close();
+      leaveRoom({ close: true });
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [leaveRoom, stopStreaming]);
 
   return (
     <Card className="section-card" bordered={false}>

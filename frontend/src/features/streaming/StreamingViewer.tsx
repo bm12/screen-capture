@@ -1,14 +1,9 @@
 import { Alert, Button, Card, Input, Space, Tag, Typography, message } from 'antd';
 import { VideoCameraOutlined } from '@ant-design/icons';
-import { useEffect, useRef, useState } from 'react';
-import { SignalingClient } from '../../lib/signalingClient';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { iceServers } from '../../lib/constants';
-import type {
-  PeerUpdatePayload,
-  RoomJoinedPayload,
-  SignalEnvelope,
-  SignalMessagePayload,
-} from '../../lib/types';
+import type { SignalEnvelope } from '../../lib/types';
+import { useSignalingRoom } from '../../lib/useSignalingRoom';
 
 const STREAM_ROLE_HOST = 'host';
 const STREAM_ROLE_VIEWER = 'viewer';
@@ -25,74 +20,15 @@ export const StreamingViewer = ({ initialRoomId = '', autoStart = false }: Strea
   const [status, setStatus] = useState<string>('Введите код комнаты, чтобы подключиться.');
   const [messageApi, contextHolder] = message.useMessage();
 
-  const signalingRef = useRef<SignalingClient | null>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const hostIdRef = useRef<string | null>(null);
-  const subscriptionsRef = useRef<(() => void)[]>([]);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
+  const sendSignalRef = useRef<(targetClientId: string, signal: SignalEnvelope) => void>(() => {
+    throw new Error('Сигнальное соединение ещё не готово.');
+  });
+  const isUnmountedRef = useRef(false);
 
-  const attachListeners = (client: SignalingClient) => {
-    const roomJoined = client.on<RoomJoinedPayload>('room-joined', (payload) => {
-      setStatus('Ожидание ведущего.');
-      const host = payload.participants.find((participant) => participant.role === STREAM_ROLE_HOST);
-      hostIdRef.current = host?.clientId ?? null;
-      if (!host) {
-        setStatus('Ведущий пока не подключился. Как только он начнёт трансляцию, видео появится автоматически.');
-      }
-    });
-
-    const peerJoined = client.on<PeerUpdatePayload>('peer-joined', (payload) => {
-      if (payload.role === STREAM_ROLE_HOST) {
-        hostIdRef.current = payload.clientId;
-        setStatus('Ведущий подключился. Ожидаем видео.');
-      }
-    });
-
-    const peerLeft = client.on<PeerUpdatePayload>('peer-left', (payload) => {
-      if (payload.clientId === hostIdRef.current) {
-        setStatus('Ведущий покинул комнату. Трансляция остановлена.');
-        stopViewing(false);
-      }
-    });
-
-    const signalListener = client.on<SignalMessagePayload>('signal', async (payload) => {
-      if (!payload || payload.senderId !== hostIdRef.current) {
-        return;
-      }
-      const { signal } = payload;
-      if (signal.kind === 'description' && signal.description.type === 'offer') {
-        await handleOffer(signal.description);
-      }
-      if (signal.kind === 'candidate') {
-        await peerConnectionRef.current?.addIceCandidate(signal.candidate).catch((error) => {
-          console.error('[viewer] Ошибка добавления ICE-кандидата', error);
-        });
-      }
-    });
-
-    const errorListener = client.on('error', (payload) => {
-      console.error('[viewer] Ошибка сигналинга', payload);
-      messageApi.error('Ошибка сигналинга. Попробуйте переподключиться.');
-    });
-
-    subscriptionsRef.current.push(roomJoined, peerJoined, peerLeft, signalListener, errorListener);
-  };
-
-  const detachListeners = () => {
-    subscriptionsRef.current.forEach((unsubscribe) => unsubscribe());
-    subscriptionsRef.current = [];
-  };
-
-  const ensureSignaling = async () => {
-    if (!signalingRef.current) {
-      signalingRef.current = new SignalingClient();
-      attachListeners(signalingRef.current);
-    }
-    await signalingRef.current.connect();
-    return signalingRef.current;
-  };
-
-  const createPeerConnection = () => {
+  const createPeerConnection = useCallback(() => {
     if (peerConnectionRef.current) {
       return peerConnectionRef.current;
     }
@@ -105,18 +41,18 @@ export const StreamingViewer = ({ initialRoomId = '', autoStart = false }: Strea
       }
     };
     connection.onicecandidate = (event) => {
-      if (!event.candidate || !signalingRef.current || !hostIdRef.current) {
+      if (!event.candidate || !hostIdRef.current) {
         return;
       }
       const signal: SignalEnvelope = {
         kind: 'candidate',
         candidate: event.candidate.toJSON(),
       };
-      signalingRef.current.send('signal', {
-        roomId,
-        targetClientId: hostIdRef.current,
-        signal,
-      });
+      try {
+        sendSignalRef.current(hostIdRef.current, signal);
+      } catch (error) {
+        console.error('[viewer] Не удалось отправить ICE-кандидата ведущему', error);
+      }
     };
     connection.onconnectionstatechange = () => {
       const state = connection.connectionState;
@@ -128,38 +64,114 @@ export const StreamingViewer = ({ initialRoomId = '', autoStart = false }: Strea
 
     peerConnectionRef.current = connection;
     return connection;
-  };
+  }, [setStatus]);
 
-  const handleOffer = async (description: RTCSessionDescriptionInit) => {
-    const connection = createPeerConnection();
-    await connection.setRemoteDescription(description);
-    const answer = await connection.createAnswer();
-    await connection.setLocalDescription(answer);
-    if (!signalingRef.current || !hostIdRef.current) {
-      return;
-    }
-    const signal: SignalEnvelope = {
-      kind: 'description',
-      description: answer,
-    };
-    signalingRef.current.send('signal', {
-      roomId,
-      targetClientId: hostIdRef.current,
-      signal,
-    });
-    setIsWatching(true);
-    setStatus('Трансляция активна.');
-  };
+  const handleOffer = useCallback(
+    async (description: RTCSessionDescriptionInit) => {
+      const connection = createPeerConnection();
+      await connection.setRemoteDescription(description);
+      const answer = await connection.createAnswer();
+      await connection.setLocalDescription(answer);
+      if (!hostIdRef.current) {
+        return;
+      }
+      const signal: SignalEnvelope = {
+        kind: 'description',
+        description: answer,
+      };
+      try {
+        sendSignalRef.current(hostIdRef.current, signal);
+        setIsWatching(true);
+        setStatus('Трансляция активна.');
+      } catch (error) {
+        console.error('[viewer] Не удалось отправить answer ведущему', error);
+      }
+    },
+    [createPeerConnection],
+  );
 
-  const startViewing = async () => {
+  const { joinRoom, leaveRoom, sendSignal } = useSignalingRoom({
+    roomId,
+    mode: 'stream',
+    role: STREAM_ROLE_VIEWER,
+    onRoomJoined: async (payload) => {
+      console.log('[viewer] Подключены к комнате', payload);
+      const host = payload.participants.find((participant) => participant.role === STREAM_ROLE_HOST);
+      hostIdRef.current = host?.clientId ?? null;
+      if (!host) {
+        setStatus('Ведущий пока не подключился. Как только он начнёт трансляцию, видео появится автоматически.');
+      } else {
+        setStatus('Ведущий уже в комнате. Ожидаем видео.');
+      }
+    },
+    onPeerJoined: async (payload) => {
+      if (payload.role === STREAM_ROLE_HOST) {
+        hostIdRef.current = payload.clientId;
+        setStatus('Ведущий подключился. Ожидаем видео.');
+      }
+    },
+    onPeerLeft: async (payload) => {
+      if (payload.clientId === hostIdRef.current) {
+        setStatus('Ведущий покинул комнату. Трансляция остановлена.');
+        hostIdRef.current = null;
+        peerConnectionRef.current?.close();
+        peerConnectionRef.current = null;
+        if (remoteVideoRef.current) {
+          remoteVideoRef.current.srcObject = null;
+        }
+        setIsWatching(false);
+      }
+    },
+    onSignal: async (payload) => {
+      if (!payload || payload.senderId !== hostIdRef.current) {
+        return;
+      }
+      const { signal } = payload;
+      if (signal.kind === 'description' && signal.description.type === 'offer') {
+        await handleOffer(signal.description);
+      }
+      if (signal.kind === 'candidate') {
+        await peerConnectionRef.current?.addIceCandidate(signal.candidate).catch((error) => {
+          console.error('[viewer] Ошибка добавления ICE-кандидата', error);
+        });
+      }
+    },
+    onError: async (payload) => {
+      console.error('[viewer] Ошибка сигналинга', payload);
+      messageApi.error('Ошибка сигналинга. Попробуйте переподключиться.');
+    },
+    onClose: async () => {
+      console.warn('[viewer] Сигнальное соединение закрыто');
+      peerConnectionRef.current?.close();
+      peerConnectionRef.current = null;
+      if (!isUnmountedRef.current) {
+        setIsWatching(false);
+        setStatus('Сигналинг отключился. Пытаемся переподключиться…');
+      }
+    },
+    onReconnected: async () => {
+      console.log('[viewer] Сигналинг переподключился');
+      if (!isUnmountedRef.current) {
+        setStatus('Сигналинг восстановлен. Ждём ведущего.');
+      }
+    },
+    onReconnectionFailed: async (error) => {
+      console.error('[viewer] Не удалось переподключиться', error);
+      messageApi.error('Не удалось восстановить соединение. Попробуйте подключиться повторно.');
+    },
+  });
+
+  sendSignalRef.current = sendSignal;
+
+  const startViewing = useCallback(async () => {
     if (!roomId) {
       messageApi.warning('Введите идентификатор комнаты.');
       return;
     }
     setIsConnecting(true);
     try {
-      const client = await ensureSignaling();
-      client.send('join-room', { roomId, mode: 'stream', role: STREAM_ROLE_VIEWER });
+      console.log('[viewer] Отправляем запрос на присоединение к комнате', { roomId });
+      await joinRoom();
       setStatus('Подключаемся к комнате…');
     } catch (error) {
       console.error('[viewer] Не удалось подключиться', error);
@@ -167,31 +179,34 @@ export const StreamingViewer = ({ initialRoomId = '', autoStart = false }: Strea
     } finally {
       setIsConnecting(false);
     }
-  };
+  }, [joinRoom, messageApi, roomId]);
 
-  const stopViewing = (notify = true) => {
-    if (notify) {
-      signalingRef.current?.send('leave-room', {});
-    }
-    peerConnectionRef.current?.close();
-    peerConnectionRef.current = null;
-    if (remoteVideoRef.current) {
-      remoteVideoRef.current.srcObject = null;
-    }
-    setIsWatching(false);
-  };
+  const stopViewing = useCallback(
+    (notify = true) => {
+      if (notify) {
+        leaveRoom();
+      }
+      peerConnectionRef.current?.close();
+      peerConnectionRef.current = null;
+      if (remoteVideoRef.current) {
+        remoteVideoRef.current.srcObject = null;
+      }
+      setIsWatching(false);
+    },
+    [leaveRoom],
+  );
 
   useEffect(() => {
+    isUnmountedRef.current = false;
     if (autoStart && initialRoomId) {
       startViewing().catch(() => undefined);
     }
     return () => {
+      isUnmountedRef.current = true;
       stopViewing(false);
-      detachListeners();
-      signalingRef.current?.close();
+      leaveRoom({ close: true });
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [autoStart, initialRoomId, leaveRoom, startViewing, stopViewing]);
 
   return (
     <Card className="section-card" bordered={false}>
