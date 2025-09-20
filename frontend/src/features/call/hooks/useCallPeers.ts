@@ -2,9 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MutableRefObject } from 'react';
 import type { MessageInstance } from 'antd/es/message/interface';
 
-import { iceServers } from '../../lib/constants';
-import type { SignalEnvelope } from '../../lib/types';
-import { useSignalingRoom } from '../../lib/useSignalingRoom';
+import { iceServers } from '../../../lib/constants';
+import type { SignalEnvelope } from '../../../lib/types';
+import { useSignalingRoom } from '../../../lib/useSignalingRoom';
 
 const CALL_ROLE = 'participant';
 

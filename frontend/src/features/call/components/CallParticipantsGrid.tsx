@@ -3,7 +3,7 @@ import type { RefObject } from 'react';
 import type { RemoteParticipant } from '../hooks/useCallPeers';
 
 type CallParticipantsGridProps = {
-  localVideoRef: RefObject<HTMLVideoElement>;
+  localVideoRef: RefObject<HTMLVideoElement | null>;
   remoteParticipants: RemoteParticipant[];
 };
 
