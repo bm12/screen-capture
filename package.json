@@ -4,6 +4,7 @@
   "description": "Сервис записи экрана, трансляции и видеозвонков",
   "main": "server.js",
   "scripts": {
+    "postinstall": "npm --prefix frontend install",
     "prestart": "npm run build",
     "start": "node server.js",
     "dev": "cross-env NODE_ENV=development node server.js",
