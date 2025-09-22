@@ -2,6 +2,8 @@ import { Button, Space, Tag, Tooltip } from 'antd';
 import {
   AudioMutedOutlined,
   AudioOutlined,
+  FullscreenExitOutlined,
+  FullscreenOutlined,
   RetweetOutlined,
   TeamOutlined,
   VideoCameraAddOutlined,
@@ -15,6 +17,9 @@ type CallControlsProps = {
   onToggleMicrophone: () => void;
   onToggleCamera: () => void;
   onSwitchCamera: () => void;
+  isFullscreen: boolean;
+  canToggleFullscreen: boolean;
+  onToggleFullscreen: () => void;
   participantsCount: number;
 };
 
@@ -25,6 +30,9 @@ export const CallControls = ({
   onToggleMicrophone,
   onToggleCamera,
   onSwitchCamera,
+  isFullscreen,
+  canToggleFullscreen,
+  onToggleFullscreen,
   participantsCount,
 }: CallControlsProps) => (
   <Space size="middle" wrap>
@@ -47,6 +55,15 @@ export const CallControls = ({
     <Tooltip title="Переключить камеру">
       <Button icon={<RetweetOutlined />} onClick={onSwitchCamera} disabled={!canSwitchCamera}>
         Сменить камеру
+      </Button>
+    </Tooltip>
+    <Tooltip title={isFullscreen ? 'Свернуть из полноэкранного режима' : 'На весь экран'}>
+      <Button
+        icon={isFullscreen ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
+        onClick={onToggleFullscreen}
+        disabled={!canToggleFullscreen}
+      >
+        {isFullscreen ? 'Свернуть' : 'На весь экран'}
       </Button>
     </Tooltip>
     <Tag icon={<TeamOutlined />} color="blue">

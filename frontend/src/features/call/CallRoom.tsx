@@ -1,6 +1,6 @@
 import { Alert, Button, Card, Space, Typography, message } from 'antd';
 import { CopyOutlined } from '@ant-design/icons';
-import { useEffect } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { CallControls } from './components/CallControls';
 import { CallParticipantsGrid } from './components/CallParticipantsGrid';
@@ -38,6 +38,80 @@ export const CallRoom = ({ roomId }: CallRoomProps) => {
     registerVideoTrackSwitchHandler,
   });
 
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const videoContainerRef = useRef<HTMLDivElement | null>(null);
+
+  const handleFullscreenChange = useCallback(() => {
+    if (typeof document === 'undefined') {
+      return;
+    }
+    const currentElement = document.fullscreenElement;
+    setIsFullscreen(currentElement === videoContainerRef.current);
+  }, []);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') {
+      return;
+    }
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    };
+  }, [handleFullscreenChange]);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') {
+      return;
+    }
+
+    if (
+      remoteParticipants.length === 0 &&
+      document.fullscreenElement === videoContainerRef.current &&
+      document.exitFullscreen
+    ) {
+      document.exitFullscreen().catch((error) =>
+        console.warn('[call] Не удалось выйти из полноэкранного режима', error),
+      );
+    }
+  }, [remoteParticipants.length]);
+
+  const toggleFullscreen = useCallback(async () => {
+    if (typeof document === 'undefined') {
+      return;
+    }
+
+    const container = videoContainerRef.current;
+    if (!container) {
+      return;
+    }
+
+    if (!container.requestFullscreen) {
+      messageApi.warning('Ваш браузер не поддерживает полноэкранный режим.');
+      return;
+    }
+
+    const isAlreadyFullscreen = document.fullscreenElement === container;
+
+    try {
+      if (isAlreadyFullscreen) {
+        if (!document.exitFullscreen) {
+          messageApi.warning('Ваш браузер не поддерживает выход из полноэкранного режима.');
+          return;
+        }
+        await document.exitFullscreen();
+      } else {
+        if (document.fullscreenElement && document.exitFullscreen) {
+          await document.exitFullscreen();
+        }
+        await container.requestFullscreen();
+      }
+    } catch (error) {
+      console.error('[call] Не удалось переключить полноэкранный режим', error);
+      messageApi.error('Не удалось переключить полноэкранный режим.');
+    }
+  }, [messageApi]);
+
   useEffect(() => {
     let isMounted = true;
 
@@ -66,6 +140,7 @@ export const CallRoom = ({ roomId }: CallRoomProps) => {
   }, [joinRoom, leaveRoom, messageApi, roomId, setupLocalStream]);
 
   const participantsCount = remoteParticipants.length + 1;
+  const canEnterFullscreen = remoteParticipants.length > 0;
 
   return (
     <Card className="section-card" bordered={false}>
@@ -86,7 +161,13 @@ export const CallRoom = ({ roomId }: CallRoomProps) => {
           </Button>
         </Space>
 
-        <CallParticipantsGrid localVideoRef={localVideoRef} remoteParticipants={remoteParticipants} />
+        <CallParticipantsGrid
+          localVideoRef={localVideoRef}
+          localStreamRef={localStreamRef}
+          remoteParticipants={remoteParticipants}
+          containerRef={videoContainerRef}
+          isFullscreen={isFullscreen}
+        />
 
         <CallControls
           isMicEnabled={isMicEnabled}
@@ -95,6 +176,9 @@ export const CallRoom = ({ roomId }: CallRoomProps) => {
           onToggleMicrophone={toggleMicrophone}
           onToggleCamera={toggleCamera}
           onSwitchCamera={switchCamera}
+          isFullscreen={isFullscreen}
+          canToggleFullscreen={canEnterFullscreen}
+          onToggleFullscreen={toggleFullscreen}
           participantsCount={participantsCount}
         />
 

@@ -11,9 +11,43 @@ type UseLocalMediaOptions = {
   messageApi: MessageInstance;
 };
 
+const STORAGE_KEYS = {
+  mic: 'call:mic-enabled',
+  camera: 'call:camera-enabled',
+} as const;
+
+const readStoredBoolean = (key: string, fallback: boolean) => {
+  if (typeof window === 'undefined') {
+    return fallback;
+  }
+  try {
+    const value = window.localStorage.getItem(key);
+    if (value === null) {
+      return fallback;
+    }
+    return value === 'true';
+  } catch (error) {
+    console.warn('[call] Не удалось прочитать сохраненное состояние медиа', { key, error });
+    return fallback;
+  }
+};
+
+const writeStoredBoolean = (key: string, value: boolean) => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  try {
+    window.localStorage.setItem(key, String(value));
+  } catch (error) {
+    console.warn('[call] Не удалось сохранить состояние медиа', { key, error });
+  }
+};
+
 export const useLocalMedia = ({ roomId, messageApi }: UseLocalMediaOptions) => {
-  const [isMicEnabled, setIsMicEnabled] = useState(true);
-  const [isCameraEnabled, setIsCameraEnabled] = useState(true);
+  const [isMicEnabledState, setIsMicEnabledState] = useState(() => readStoredBoolean(STORAGE_KEYS.mic, true));
+  const [isCameraEnabledState, setIsCameraEnabledState] = useState(() =>
+    readStoredBoolean(STORAGE_KEYS.camera, true),
+  );
   const [videoDevices, setVideoDevices] = useState<MediaDeviceInfo[]>([]);
   const [activeVideoDeviceId, setActiveVideoDeviceId] = useState<string | null>(null);
 
@@ -23,6 +57,19 @@ export const useLocalMedia = ({ roomId, messageApi }: UseLocalMediaOptions) => {
   const isUnmountedRef = useRef(false);
   const streamUpdateHandlerRef = useRef<StreamUpdateHandler | null>(null);
   const videoTrackSwitchHandlerRef = useRef<VideoTrackSwitchHandler | null>(null);
+
+  const updateMicState = useCallback((nextState: boolean) => {
+    setIsMicEnabledState(nextState);
+    writeStoredBoolean(STORAGE_KEYS.mic, nextState);
+  }, []);
+
+  const updateCameraState = useCallback((nextState: boolean) => {
+    setIsCameraEnabledState(nextState);
+    writeStoredBoolean(STORAGE_KEYS.camera, nextState);
+  }, []);
+
+  const isMicEnabled = isMicEnabledState;
+  const isCameraEnabled = isCameraEnabledState;
 
   const shareLink = useMemo(() => {
     if (typeof window === 'undefined') {
@@ -75,12 +122,12 @@ export const useLocalMedia = ({ roomId, messageApi }: UseLocalMediaOptions) => {
 
       const audioTracks = stream.getAudioTracks();
       if (!isUnmountedRef.current) {
-        setIsMicEnabled(audioTracks.some((track) => track.enabled));
+        updateMicState(audioTracks.some((track) => track.enabled));
       }
 
       const videoTrack = stream.getVideoTracks()[0] ?? null;
       if (!isUnmountedRef.current) {
-        setIsCameraEnabled(Boolean(videoTrack?.enabled));
+        updateCameraState(Boolean(videoTrack?.enabled));
         setActiveVideoDeviceId(videoTrack?.getSettings().deviceId ?? null);
       }
 
@@ -107,7 +154,7 @@ export const useLocalMedia = ({ roomId, messageApi }: UseLocalMediaOptions) => {
 
       streamUpdateHandlerRef.current?.(stream);
     },
-    [],
+    [updateCameraState, updateMicState],
   );
 
   const refreshDevices = useCallback(async () => {
@@ -192,17 +239,17 @@ export const useLocalMedia = ({ roomId, messageApi }: UseLocalMediaOptions) => {
         audio: true,
         video: { facingMode: 'user' },
       });
-      await applyLocalStream(stream);
+      await applyLocalStream(stream, { micEnabled: isMicEnabled, cameraEnabled: isCameraEnabled });
     } catch (error) {
       console.error('[call] Не удалось получить доступ к камере', error);
       const audioOnly = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-      await applyLocalStream(audioOnly, { cameraEnabled: false });
+      await applyLocalStream(audioOnly, { micEnabled: isMicEnabled, cameraEnabled: false });
       desiredFacingModeRef.current = null;
       messageApi.warning('Камера недоступна. Подключаемся только с микрофоном.');
     }
 
     await refreshDevices();
-  }, [applyLocalStream, messageApi, refreshDevices]);
+  }, [applyLocalStream, isCameraEnabled, isMicEnabled, messageApi, refreshDevices]);
 
   const toggleMicrophone = useCallback(() => {
     const stream = localStreamRef.current;
@@ -211,12 +258,12 @@ export const useLocalMedia = ({ roomId, messageApi }: UseLocalMediaOptions) => {
     }
     stream.getAudioTracks().forEach((track, index) => {
       track.enabled = !track.enabled;
-      setIsMicEnabled(track.enabled);
+      updateMicState(track.enabled);
       if (index === 0) {
         console.log('[call] Состояние микрофона изменено', { enabled: track.enabled });
       }
     });
-  }, []);
+  }, [updateMicState]);
 
   const toggleCamera = useCallback(() => {
     const stream = localStreamRef.current;
@@ -230,12 +277,12 @@ export const useLocalMedia = ({ roomId, messageApi }: UseLocalMediaOptions) => {
     }
     videoTracks.forEach((track, index) => {
       track.enabled = !track.enabled;
-      setIsCameraEnabled(track.enabled);
+      updateCameraState(track.enabled);
       if (index === 0) {
         console.log('[call] Состояние камеры изменено', { enabled: track.enabled });
       }
     });
-  }, [messageApi]);
+  }, [messageApi, updateCameraState]);
 
   const switchCamera = useCallback(async () => {
     const attempts: {
