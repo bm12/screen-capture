@@ -12,6 +12,7 @@ type MessageApiMock = MessageInstance & {
   warning: ReturnType<typeof vi.fn>;
   error: ReturnType<typeof vi.fn>;
   loading: ReturnType<typeof vi.fn>;
+  destroy: ReturnType<typeof vi.fn>;
 };
 
 const createMessageApiMock = (): MessageApiMock =>
@@ -22,6 +23,7 @@ const createMessageApiMock = (): MessageApiMock =>
     warning: vi.fn(),
     error: vi.fn(),
     loading: vi.fn(),
+    destroy: vi.fn(),
   } as unknown as MessageApiMock);
 
 type HookOptions = Parameters<typeof useLocalMedia>[0];
@@ -199,6 +201,7 @@ beforeEach(() => {
   enumerateDevicesMock.mockReset();
   addDeviceListenerMock.mockReset();
   removeDeviceListenerMock.mockReset();
+  window.localStorage.clear();
 
   Object.defineProperty(navigator, 'mediaDevices', {
     configurable: true,
@@ -226,8 +229,8 @@ afterEach(() => {
 });
 
 describe('useLocalMedia switchCamera queue', () => {
-    it('continues queue when fallback reuses previous camera before switching to a new device', async () => {
-      const messageApi = createMessageApiMock();
+  it('continues queue when fallback reuses previous camera before switching to a new device', async () => {
+    const messageApi = createMessageApiMock();
     const consoleLogMock = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     const consoleWarnMock = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
@@ -384,5 +387,71 @@ describe('useLocalMedia switchCamera queue', () => {
 
     expect(finalTrack.stop).toHaveBeenCalledTimes(1);
     expect(messageApi.error).not.toHaveBeenCalled();
+  });
+});
+
+describe('useLocalMedia switchCamera recovery', () => {
+  it('restores the previous camera when all attempts fail and reports an error if recovery fails', async () => {
+    const messageApi = createMessageApiMock();
+
+    const initialTrack = createMockVideoTrack({ id: 'track-initial', deviceId: 'device-1', facingMode: 'user' });
+    const initialStream = createMockStream({ id: 'stream-initial', videoTracks: [initialTrack] });
+
+    const recoveryTrack = createMockVideoTrack({ id: 'track-recovery', deviceId: 'device-1', facingMode: 'user' });
+    const recoveryStream = createMockStream({ id: 'stream-recovery', videoTracks: [recoveryTrack] });
+
+    getUserMediaMock
+      .mockResolvedValueOnce(initialStream)
+      .mockRejectedValueOnce(Object.assign(new Error('candidate failure'), { name: 'NotReadableError' }))
+      .mockRejectedValueOnce(new Error('fallback failure'))
+      .mockResolvedValueOnce(recoveryStream);
+
+    const devices = [
+      createVideoDevice({ deviceId: 'device-1', label: 'Front camera' }),
+      createVideoDevice({ deviceId: 'device-2', label: 'Rear camera' }),
+    ];
+    enumerateDevicesMock.mockResolvedValue(devices);
+
+    const renderResult = await renderUseLocalMedia({ messageApi });
+
+    await act(async () => {
+      await renderResult.getControls().setupLocalStream();
+    });
+
+    await waitFor(() => {
+      const controls = renderResult.getControls();
+      expect(controls.localStreamRef.current).toBe(initialStream);
+      expect(controls.videoDevices).toHaveLength(2);
+      expect(controls.activeVideoDeviceId).toBe('device-1');
+    });
+
+    await act(async () => {
+      await renderResult.getControls().switchCamera();
+    });
+
+    await waitFor(() => {
+      const controls = renderResult.getControls();
+      const videoTracks = controls.localStreamRef.current?.getVideoTracks() ?? [];
+      expect(videoTracks).toHaveLength(1);
+      expect(videoTracks[0]).toBe(recoveryTrack);
+      expect(controls.activeVideoDeviceId).toBe('device-1');
+    });
+    expect(messageApi.error).not.toHaveBeenCalled();
+
+    const enumerateCallsAfterSuccess = enumerateDevicesMock.mock.calls.length;
+
+    messageApi.error.mockClear();
+
+    getUserMediaMock
+      .mockRejectedValueOnce(new Error('candidate failure 2'))
+      .mockRejectedValueOnce(new Error('fallback failure 2'))
+      .mockRejectedValueOnce(new Error('restore failure'));
+
+    await act(async () => {
+      await renderResult.getControls().switchCamera();
+    });
+
+    expect(messageApi.error).toHaveBeenCalledWith('Не удалось переключить камеру.');
+    expect(enumerateDevicesMock.mock.calls.length).toBe(enumerateCallsAfterSuccess + 1);
   });
 });
