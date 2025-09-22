@@ -17,7 +17,7 @@ const createMockTrack = ({ deviceId = null, facingMode, kind = 'video' }: TrackO
   let readyState: MediaStreamTrack['readyState'] = 'live';
 
   const track: Partial<MediaStreamTrack> & {
-    onended: ((this: MediaStreamTrack, ev: Event) => any) | null;
+    onended: ((this: MediaStreamTrack, ev: Event) => void) | null;
     getSettings: () => MediaTrackSettings;
   } = {
     enabled: true,
