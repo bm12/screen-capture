@@ -137,7 +137,7 @@ export const prefetchIceServers = (uid?: string) => {
   if (typeof window === 'undefined') {
     return;
   }
-  void getDynamicIceServers(uid);
+  getDynamicIceServers(uid);
 };
 
 export const clearIceCache = () => {
