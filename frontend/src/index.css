@@ -101,6 +101,7 @@ a:hover {
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 16px;
   width: 100%;
+  position: relative;
 }
 
 .video-grid video {
@@ -126,6 +127,36 @@ a:hover {
   padding: 4px 12px;
   border-radius: 999px;
   font-size: 12px;
+}
+
+.video-grid__autoplay-warning {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+  padding: 10px 20px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 999px;
+  font-size: 14px;
+  line-height: 1.4;
+  cursor: pointer;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(12px);
+  transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+
+.video-grid__autoplay-warning:hover {
+  background: rgba(0, 0, 0, 0.85);
+  border-color: rgba(255, 255, 255, 0.35);
+}
+
+.video-grid__autoplay-warning:focus-visible {
+  outline: 2px solid #1677ff;
+  outline-offset: 2px;
+  transform: translateX(-50%) scale(1.02);
 }
 
 .video-stage {
