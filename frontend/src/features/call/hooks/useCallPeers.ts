@@ -33,6 +33,7 @@ export const useCallPeers = ({
 
   const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
   const pendingConnectionsRef = useRef<Map<string, Promise<RTCPeerConnection>>>(new Map());
+  const pendingIceCandidatesRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
   const sendSignalRef = useRef<(targetClientId: string, signal: SignalEnvelope) => void>(() => {
     throw new Error('Сигнальное соединение ещё не готово.');
   });
@@ -50,8 +51,33 @@ export const useCallPeers = ({
       peerConnectionsRef.current.delete(participantId);
     }
     pendingConnectionsRef.current.delete(participantId);
+    pendingIceCandidatesRef.current.delete(participantId);
     setRemoteParticipants((prev) => prev.filter((participant) => participant.id !== participantId));
   }, []);
+
+  const flushPendingIceCandidates = useCallback(
+    async (participantId: string, connection: RTCPeerConnection | null | undefined) => {
+      if (!connection) {
+        return;
+      }
+
+      const pendingCandidates = pendingIceCandidatesRef.current.get(participantId);
+      if (!pendingCandidates?.length) {
+        return;
+      }
+
+      for (const candidate of pendingCandidates) {
+        try {
+          await connection.addIceCandidate(candidate);
+        } catch (error) {
+          console.error('[call] Ошибка при добавлении отложенного ICE-кандидата', error);
+        }
+      }
+
+      pendingIceCandidatesRef.current.delete(participantId);
+    },
+    [],
+  );
 
   const updatePeerSenders = useCallback((stream: MediaStream) => {
     peerConnectionsRef.current.forEach((connection, participantId) => {
@@ -195,6 +221,7 @@ export const useCallPeers = ({
         return;
       }
       await connection.setRemoteDescription(description);
+      await flushPendingIceCandidates(participantId, connection);
       const answer = await connection.createAnswer();
       await connection.setLocalDescription(answer);
       const signal: SignalEnvelope = {
@@ -207,7 +234,7 @@ export const useCallPeers = ({
         console.error('[call] Не удалось отправить answer участнику', error);
       }
     },
-    [getOrCreateConnection],
+    [flushPendingIceCandidates, getOrCreateConnection],
   );
 
   const { joinRoom: joinSignalRoom, leaveRoom: leaveSignalRoom, sendSignal } = useSignalingRoom({
@@ -254,14 +281,25 @@ export const useCallPeers = ({
           const connection =
             peerConnectionsRef.current.get(senderId) ??
             (await pendingConnectionsRef.current.get(senderId)?.catch(() => null));
-          await connection?.setRemoteDescription(signal.description);
+          if (!connection) {
+            return;
+          }
+          await connection.setRemoteDescription(signal.description);
+          await flushPendingIceCandidates(senderId, connection);
         }
       } else if (signal.kind === 'candidate') {
         const connection =
           peerConnectionsRef.current.get(senderId) ??
           (await pendingConnectionsRef.current.get(senderId)?.catch(() => null));
+        const candidate = signal.candidate;
+        if (!connection?.remoteDescription) {
+          const queue = pendingIceCandidatesRef.current.get(senderId) ?? [];
+          queue.push(candidate);
+          pendingIceCandidatesRef.current.set(senderId, queue);
+          return;
+        }
         await connection
-          ?.addIceCandidate(signal.candidate)
+          .addIceCandidate(candidate)
           .catch((error) => console.error('[call] Ошибка при добавлении ICE-кандидата', error));
       }
     },
@@ -274,6 +312,7 @@ export const useCallPeers = ({
       peerConnectionsRef.current.forEach((connection) => connection.close());
       peerConnectionsRef.current.clear();
       pendingConnectionsRef.current.clear();
+      pendingIceCandidatesRef.current.clear();
       if (!isUnmountedRef.current) {
         setStatus('Соединение потеряно. Пытаемся переподключиться…');
         setRemoteParticipants([]);
@@ -304,6 +343,7 @@ export const useCallPeers = ({
       peerConnectionsRef.current.forEach((connection) => connection.close());
       peerConnectionsRef.current.clear();
       pendingConnectionsRef.current.clear();
+      pendingIceCandidatesRef.current.clear();
       if (!isUnmountedRef.current) {
         setRemoteParticipants([]);
         setStatus('Вы покинули комнату.');
