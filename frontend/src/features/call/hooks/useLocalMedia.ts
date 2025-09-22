@@ -54,6 +54,7 @@ export const useLocalMedia = ({ roomId, messageApi }: UseLocalMediaOptions) => {
   const localStreamRef = useRef<MediaStream | null>(null);
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const desiredFacingModeRef = useRef<'user' | 'environment' | null>(null);
+  const notReadableDeviceIdsRef = useRef<Set<string>>(new Set());
   const isUnmountedRef = useRef(false);
   const streamUpdateHandlerRef = useRef<StreamUpdateHandler | null>(null);
   const videoTrackSwitchHandlerRef = useRef<VideoTrackSwitchHandler | null>(null);
@@ -305,36 +306,75 @@ export const useLocalMedia = ({ roomId, messageApi }: UseLocalMediaOptions) => {
         ? settingsFacing
         : desiredFacingModeRef.current;
 
-    const attempts: {
+    const notReadableDeviceIds = notReadableDeviceIdsRef.current;
+
+    type SwitchAttempt = {
       constraint: MediaTrackConstraints;
-      deviceId?: string | null;
-      facingMode?: 'user' | 'environment' | null;
-    }[] = [];
+      deviceId: string | null;
+      facingMode: 'user' | 'environment' | null;
+      kind: 'device' | 'fallback';
+    };
+
+    const attempts: SwitchAttempt[] = [];
 
     if (videoDevices.length > 0) {
       const currentIndex = videoDevices.findIndex((device) => device.deviceId === activeVideoDeviceId);
-      const nextIndex = currentIndex === -1 ? 0 : (currentIndex + 1) % videoDevices.length;
-      const nextDevice = videoDevices[nextIndex];
-      const guessedFacingMode = guessFacingMode(nextDevice);
-      if (nextDevice?.deviceId) {
+      const totalDevices = videoDevices.length;
+      const baseIndex = currentIndex === -1 ? -1 : currentIndex;
+      const visitedDeviceIds = new Set<string>();
+
+      for (let offset = 1; offset <= totalDevices; offset += 1) {
+        const index = (baseIndex + offset + totalDevices) % totalDevices;
+        const candidate = videoDevices[index];
+        const candidateId = candidate?.deviceId;
+
+        if (!candidateId) {
+          continue;
+        }
+
+        if (candidateId === previousDeviceId || candidateId === activeVideoDeviceId) {
+          continue;
+        }
+
+        if (visitedDeviceIds.has(candidateId)) {
+          continue;
+        }
+        visitedDeviceIds.add(candidateId);
+
+        if (notReadableDeviceIds.has(candidateId)) {
+          console.warn('[call] Пропускаем устройство, ранее давшее NotReadableError', {
+            deviceId: candidateId,
+          });
+          continue;
+        }
+
+        const guessedFacingMode = guessFacingMode(candidate);
         attempts.push({
-          constraint: { deviceId: { exact: nextDevice.deviceId } },
-          deviceId: nextDevice.deviceId,
-          facingMode: guessedFacingMode,
-        });
-      }
-      if (guessedFacingMode) {
-        attempts.push({
-          constraint: { facingMode: { exact: guessedFacingMode } },
-          deviceId: nextDevice?.deviceId ?? null,
-          facingMode: guessedFacingMode,
+          kind: 'device',
+          constraint: { deviceId: { exact: candidateId } },
+          deviceId: candidateId,
+          facingMode: guessedFacingMode ?? null,
         });
       }
     }
 
-    if (attempts.length === 0) {
-      const fallbackFacing = previousFacingMode === 'environment' ? 'user' : 'environment';
-      attempts.push({ constraint: { facingMode: { exact: fallbackFacing } }, facingMode: fallbackFacing });
+    const fallbackFacings: ('user' | 'environment')[] = [];
+    if (previousFacingMode === 'environment') {
+      fallbackFacings.push('user');
+    } else if (previousFacingMode === 'user') {
+      fallbackFacings.push('environment');
+    } else {
+      fallbackFacings.push('environment', 'user');
+    }
+
+    const uniqueFallbackFacings = Array.from(new Set(fallbackFacings));
+    for (const facing of uniqueFallbackFacings) {
+      attempts.push({
+        kind: 'fallback',
+        constraint: { facingMode: { exact: facing } },
+        deviceId: null,
+        facingMode: facing,
+      });
     }
 
     capturedStream.removeTrack(currentTrack);
@@ -371,10 +411,39 @@ export const useLocalMedia = ({ roomId, messageApi }: UseLocalMediaOptions) => {
         } else if (attempt.facingMode) {
           appliedFacingMode = attempt.facingMode;
         }
+        const deviceChanged = (appliedDeviceId ?? null) !== (previousDeviceId ?? null);
+        if (attempt.kind === 'fallback' && !deviceChanged) {
+          console.log('[call] Fallback вернул текущую камеру, продолжаем поиск другой камеры', {
+            deviceId: appliedDeviceId,
+            facingMode: appliedFacingMode,
+          });
+          track.stop();
+          stream.getTracks().forEach((mediaTrack) => {
+            if (mediaTrack !== track) {
+              mediaTrack.stop();
+            }
+          });
+          newTrack = null;
+          appliedDeviceId = null;
+          appliedFacingMode = null;
+          continue;
+        }
         break;
       } catch (error) {
         lastError = error;
         console.warn('[call] Попытка переключения камеры завершилась неудачно', { attempt, error });
+        if (
+          attempt.deviceId &&
+          typeof error === 'object' &&
+          error !== null &&
+          'name' in error &&
+          (error as { name?: string }).name === 'NotReadableError'
+        ) {
+          notReadableDeviceIds.add(attempt.deviceId);
+          console.warn('[call] Запоминаем устройство с ошибкой NotReadableError', {
+            deviceId: attempt.deviceId,
+          });
+        }
       }
     }
 
