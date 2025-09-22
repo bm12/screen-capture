@@ -238,6 +238,26 @@ export const useLocalMedia = ({ roomId, messageApi }: UseLocalMediaOptions) => {
   }, [messageApi]);
 
   const switchCamera = useCallback(async () => {
+    const localStream = localStreamRef.current;
+    if (!localStream) {
+      messageApi.error('Локальный поток недоступен. Попробуйте переподключиться.');
+      return;
+    }
+
+    const [currentTrack] = localStream.getVideoTracks();
+    if (!currentTrack) {
+      messageApi.warning('Камера неактивна или недоступна.');
+      return;
+    }
+
+    const currentSettings = currentTrack.getSettings();
+    const previousDeviceId = currentSettings.deviceId ?? activeVideoDeviceId ?? null;
+    const settingsFacing = currentSettings.facingMode;
+    const previousFacingMode =
+      settingsFacing === 'user' || settingsFacing === 'environment'
+        ? settingsFacing
+        : desiredFacingModeRef.current;
+
     const attempts: {
       constraint: MediaTrackConstraints;
       deviceId?: string | null;
@@ -266,8 +286,16 @@ export const useLocalMedia = ({ roomId, messageApi }: UseLocalMediaOptions) => {
     }
 
     if (attempts.length === 0) {
-      const fallbackFacing = desiredFacingModeRef.current === 'environment' ? 'user' : 'environment';
+      const fallbackFacing = previousFacingMode === 'environment' ? 'user' : 'environment';
       attempts.push({ constraint: { facingMode: { exact: fallbackFacing } }, facingMode: fallbackFacing });
+    }
+
+    localStream.removeTrack(currentTrack);
+    currentTrack.stop();
+
+    if (localVideoRef.current) {
+      localVideoRef.current.srcObject = localStream;
+      await localVideoRef.current.play().catch(() => undefined);
     }
 
     let newTrack: MediaStreamTrack | null = null;
@@ -282,13 +310,13 @@ export const useLocalMedia = ({ roomId, messageApi }: UseLocalMediaOptions) => {
           video: attempt.constraint,
           audio: false,
         });
-        const track = stream.getVideoTracks()[0] ?? null;
+        const [track] = stream.getVideoTracks();
         if (!track) {
           stream.getTracks().forEach((mediaTrack) => mediaTrack.stop());
           continue;
         }
-        newTrack = track;
         const trackSettings = track.getSettings();
+        newTrack = track;
         appliedDeviceId = trackSettings.deviceId ?? attempt.deviceId ?? null;
         const trackFacing = trackSettings.facingMode;
         if (trackFacing === 'user' || trackFacing === 'environment') {
@@ -304,27 +332,57 @@ export const useLocalMedia = ({ roomId, messageApi }: UseLocalMediaOptions) => {
     }
 
     if (!newTrack) {
-      console.error('[call] Не удалось переключить камеру ни по одному сценарию', lastError);
+      console.warn('[call] Не удалось переключить камеру ни по одному сценарию, пробуем восстановить предыдущую', lastError);
+      try {
+        const constraint = previousDeviceId
+          ? { deviceId: { exact: previousDeviceId } }
+          : previousFacingMode
+          ? { facingMode: { exact: previousFacingMode } }
+          : undefined;
+        const restoreStream = await navigator.mediaDevices.getUserMedia({
+          video: constraint ?? true,
+          audio: false,
+        });
+        const [restoreTrack] = restoreStream.getVideoTracks();
+        if (restoreTrack) {
+          newTrack = restoreTrack;
+          const restoreSettings = restoreTrack.getSettings();
+          appliedDeviceId = restoreSettings.deviceId ?? previousDeviceId ?? null;
+          appliedFacingMode =
+            restoreSettings.facingMode === 'user' || restoreSettings.facingMode === 'environment'
+              ? restoreSettings.facingMode
+              : previousFacingMode;
+        } else {
+          restoreStream.getTracks().forEach((mediaTrack) => mediaTrack.stop());
+        }
+      } catch (restoreError) {
+        console.error('[call] Не удалось восстановить предыдущую камеру', restoreError);
+      }
+    }
+
+    if (!newTrack) {
       messageApi.error('Не удалось переключить камеру.');
+      await refreshDevices();
       return;
-    }
-
-    const localStream = localStreamRef.current;
-    if (!localStream) {
-      messageApi.error('Локальный поток недоступен. Попробуйте переподключиться.');
-      return;
-    }
-
-    const [oldTrack] = localStream.getVideoTracks();
-    if (oldTrack) {
-      oldTrack.stop();
-      localStream.removeTrack(oldTrack);
     }
 
     newTrack.enabled = isCameraEnabled;
+    newTrack.onended = () => {
+      console.warn('[call] Локальный видеотрек остановлен браузером', { readyState: newTrack?.readyState });
+    };
     localStream.addTrack(newTrack);
-    desiredFacingModeRef.current = appliedFacingMode ?? desiredFacingModeRef.current;
-    setActiveVideoDeviceId(appliedDeviceId);
+
+    const nextFacingMode = appliedFacingMode ?? previousFacingMode ?? null;
+    desiredFacingModeRef.current = nextFacingMode ?? desiredFacingModeRef.current;
+
+    const deviceChanged = (appliedDeviceId ?? null) !== (previousDeviceId ?? null);
+    const facingChanged =
+      (appliedFacingMode ?? null) !== (previousFacingMode ?? null) && (appliedFacingMode ?? null) !== null;
+    const hasRealChange = deviceChanged || facingChanged;
+
+    if (hasRealChange) {
+      setActiveVideoDeviceId(appliedDeviceId ?? null);
+    }
 
     videoTrackSwitchHandlerRef.current?.(newTrack);
 
@@ -334,10 +392,18 @@ export const useLocalMedia = ({ roomId, messageApi }: UseLocalMediaOptions) => {
     }
 
     await refreshDevices();
-    console.log('[call] Камера переключена', {
-      deviceId: appliedDeviceId,
-      facingMode: desiredFacingModeRef.current,
-    });
+
+    if (hasRealChange) {
+      console.log('[call] Камера переключена', {
+        deviceId: appliedDeviceId,
+        facingMode: desiredFacingModeRef.current,
+      });
+    } else {
+      console.log('[call] Используем прежнюю камеру', {
+        deviceId: previousDeviceId,
+        facingMode: desiredFacingModeRef.current,
+      });
+    }
   }, [activeVideoDeviceId, isCameraEnabled, messageApi, refreshDevices, videoDevices]);
 
   const copyShareLink = useCallback(async () => {
