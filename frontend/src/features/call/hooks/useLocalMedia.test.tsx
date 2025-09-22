@@ -86,14 +86,17 @@ type MockVideoTrackOptions = {
 
 const createMockVideoTrack = ({ id, deviceId, facingMode = null }: MockVideoTrackOptions): MediaStreamTrack => {
   let onendedHandler: (() => void) | null = null;
+  let readyState: MediaStreamTrack['readyState'] = 'live';
 
   const track: Partial<MediaStreamTrack> & { id: string } = {
     id,
     kind: 'video',
     enabled: true,
-    readyState: 'live',
+    get readyState() {
+      return readyState;
+    },
     stop: vi.fn(() => {
-      track.readyState = 'ended';
+      readyState = 'ended';
       onendedHandler?.();
     }),
     getSettings: vi.fn(() => ({
@@ -334,6 +337,52 @@ describe('useLocalMedia switchCamera queue', () => {
     );
 
     expect(initialTrack.stop).toHaveBeenCalledTimes(1);
+    expect(finalTrack.stop).toHaveBeenCalledTimes(0);
+
+    getUserMediaMock.mockClear();
+    consoleLogMock.mockClear();
+    consoleWarnMock.mockClear();
+
+    const secondSwitchTrack = createMockVideoTrack({
+      id: 'track-second-switch',
+      deviceId: 'device-1',
+      facingMode: 'environment',
+    });
+    const secondSwitchStream = createMockStream({
+      id: 'stream-second-switch',
+      videoTracks: [secondSwitchTrack],
+    });
+
+    getUserMediaMock.mockResolvedValueOnce(secondSwitchStream);
+
+    await act(async () => {
+      await renderResult.getControls().switchCamera();
+    });
+
+    expect(getUserMediaMock).toHaveBeenCalledTimes(1);
+    expect(getUserMediaMock.mock.calls[0]?.[0]).toMatchObject({
+      video: { deviceId: { exact: 'device-1' } },
+      audio: false,
+    });
+
+    const skippedNotReadableCall = consoleWarnMock.mock.calls.find(
+      ([message]) => message === '[call] Пропускаем устройство, ранее давшее NotReadableError',
+    );
+    expect(skippedNotReadableCall?.[1]).toEqual(
+      expect.objectContaining({
+        deviceId: 'device-2',
+      }),
+    );
+
+    await waitFor(() => {
+      const controls = renderResult.getControls();
+      const currentStream = controls.localStreamRef.current;
+      expect(currentStream?.getVideoTracks()).toHaveLength(1);
+      expect(currentStream?.getVideoTracks()[0]).toBe(secondSwitchTrack);
+      expect(controls.activeVideoDeviceId).toBe('device-1');
+    });
+
+    expect(finalTrack.stop).toHaveBeenCalledTimes(1);
     expect(messageApi.error).not.toHaveBeenCalled();
   });
 });
