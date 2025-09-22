@@ -87,6 +87,9 @@ describe('useLocalMedia.switchCamera', () => {
     const mediaDevicesMock: MediaDevices = {
       getUserMedia: getUserMediaMock as unknown as MediaDevices['getUserMedia'],
       enumerateDevices: enumerateDevicesMock as unknown as MediaDevices['enumerateDevices'],
+      getDisplayMedia: vi.fn() as unknown as MediaDevices['getDisplayMedia'],
+      getSupportedConstraints: () => ({}) as MediaTrackSupportedConstraints,
+      ondevicechange: null,
       addEventListener: vi.fn(),
       removeEventListener: vi.fn(),
       dispatchEvent: vi.fn(),
