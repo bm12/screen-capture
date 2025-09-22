@@ -285,13 +285,13 @@ export const useLocalMedia = ({ roomId, messageApi }: UseLocalMediaOptions) => {
   }, [messageApi, updateCameraState]);
 
   const switchCamera = useCallback(async () => {
-    const localStream = localStreamRef.current;
-    if (!localStream) {
+    const capturedStream = localStreamRef.current;
+    if (!capturedStream) {
       messageApi.error('Локальный поток недоступен. Попробуйте переподключиться.');
       return;
     }
 
-    const [currentTrack] = localStream.getVideoTracks();
+    const [currentTrack] = capturedStream.getVideoTracks();
     if (!currentTrack) {
       messageApi.warning('Камера неактивна или недоступна.');
       return;
@@ -337,11 +337,11 @@ export const useLocalMedia = ({ roomId, messageApi }: UseLocalMediaOptions) => {
       attempts.push({ constraint: { facingMode: { exact: fallbackFacing } }, facingMode: fallbackFacing });
     }
 
-    localStream.removeTrack(currentTrack);
+    capturedStream.removeTrack(currentTrack);
     currentTrack.stop();
 
     if (localVideoRef.current) {
-      localVideoRef.current.srcObject = localStream;
+      localVideoRef.current.srcObject = capturedStream;
       await localVideoRef.current.play().catch(() => undefined);
     }
 
@@ -412,6 +412,23 @@ export const useLocalMedia = ({ roomId, messageApi }: UseLocalMediaOptions) => {
       await refreshDevices();
       return;
     }
+
+    const refreshedStream = localStreamRef.current;
+    if (!refreshedStream) {
+      console.warn('[call] Локальный поток стал недоступен во время переключения камеры. Отменяем замену трека.');
+      newTrack.stop();
+      await refreshDevices();
+      return;
+    }
+
+    if (refreshedStream !== capturedStream) {
+      console.warn('[call] Локальный поток был обновлен во время переключения камеры. Отменяем замену трека.');
+      newTrack.stop();
+      await refreshDevices();
+      return;
+    }
+
+    const localStream = refreshedStream;
 
     newTrack.enabled = isCameraEnabled;
     newTrack.onended = () => {
