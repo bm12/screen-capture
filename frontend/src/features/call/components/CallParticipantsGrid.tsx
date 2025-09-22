@@ -143,6 +143,7 @@ export const CallParticipantsGrid = ({
         element.srcObject = stream;
         streamAttached = true;
       } else if (!stream) {
+        element.srcObject = null;
         blockedElementsRef.current.delete(element);
         updateAutoplayBlockedState();
       }
