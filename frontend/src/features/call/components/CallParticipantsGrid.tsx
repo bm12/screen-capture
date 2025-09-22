@@ -18,6 +18,27 @@ export const CallParticipantsGrid = ({
   containerRef,
   isFullscreen,
 }: CallParticipantsGridProps) => {
+  const attachStreamToElement = useCallback(
+    (element: HTMLVideoElement | null, stream: MediaStream | null | undefined) => {
+      if (!element) {
+        return;
+      }
+
+      const currentStream = element.srcObject as MediaStream | null;
+      let streamAttached = false;
+
+      if (stream && currentStream !== stream) {
+        element.srcObject = stream;
+        streamAttached = true;
+      }
+
+      if ((streamAttached || element.paused) && element.srcObject) {
+        element.play().catch(() => undefined);
+      }
+    },
+    [],
+  );
+
   const handleLocalVideoRef = useCallback(
     (element: HTMLVideoElement | null) => {
       localVideoRef.current = element;
@@ -26,16 +47,10 @@ export const CallParticipantsGrid = ({
       }
 
       const stream = localStreamRef.current;
-      if (stream && element.srcObject !== stream) {
-        element.srcObject = stream;
-      }
-
       element.muted = true;
-      if (element.srcObject) {
-        element.play().catch(() => undefined);
-      }
+      attachStreamToElement(element, stream);
     },
-    [localStreamRef, localVideoRef],
+    [attachStreamToElement, localStreamRef, localVideoRef],
   );
 
   if (isFullscreen && remoteParticipants.length > 0) {
@@ -48,10 +63,7 @@ export const CallParticipantsGrid = ({
             autoPlay
             playsInline
             ref={(element) => {
-              if (element) {
-                element.srcObject = primaryParticipant.stream;
-                element.play().catch(() => undefined);
-              }
+              attachStreamToElement(element, primaryParticipant.stream);
             }}
             className="video-stage__primary-video"
           />
@@ -77,10 +89,7 @@ export const CallParticipantsGrid = ({
                   autoPlay
                   playsInline
                   ref={(element) => {
-                    if (element) {
-                      element.srcObject = participant.stream;
-                      element.play().catch(() => undefined);
-                    }
+                    attachStreamToElement(element, participant.stream);
                   }}
                   className="video-stage__thumbnail-video"
                 />
@@ -105,10 +114,7 @@ export const CallParticipantsGrid = ({
             autoPlay
             playsInline
             ref={(element) => {
-              if (element) {
-                element.srcObject = participant.stream;
-                element.play().catch(() => undefined);
-              }
+              attachStreamToElement(element, participant.stream);
             }}
           />
           <span className="video-grid__label">{participant.id.slice(0, 6)}</span>
