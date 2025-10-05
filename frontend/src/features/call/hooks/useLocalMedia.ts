@@ -236,9 +236,13 @@ export const useLocalMedia = ({ roomId, messageApi }: UseLocalMediaOptions) => {
 
   const setupLocalStream = useCallback(async () => {
     try {
+      const videoConstraints = buildVideoConstraints(
+        activeVideoDeviceId,
+        desiredFacingModeRef.current ?? 'user',
+      );
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: true,
-        video: { facingMode: 'user' },
+        video: videoConstraints,
       });
       await applyLocalStream(stream, { micEnabled: isMicEnabled, cameraEnabled: isCameraEnabled });
     } catch (error) {
@@ -250,7 +254,14 @@ export const useLocalMedia = ({ roomId, messageApi }: UseLocalMediaOptions) => {
     }
 
     await refreshDevices();
-  }, [applyLocalStream, isCameraEnabled, isMicEnabled, messageApi, refreshDevices]);
+  }, [
+    activeVideoDeviceId,
+    applyLocalStream,
+    isCameraEnabled,
+    isMicEnabled,
+    messageApi,
+    refreshDevices,
+  ]);
 
   const toggleMicrophone = useCallback(() => {
     const stream = localStreamRef.current;

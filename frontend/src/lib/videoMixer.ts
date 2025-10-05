@@ -38,9 +38,33 @@ export class VideoStreamMixer {
 
   private rafId: number | null = null;
 
-  private scheduleNextFrame = false;
+  private isLoopEnabled = false;
+
+  private isVisibilityPaused = false;
+
+  private lastFrameTimestamp = 0;
+
+  private readonly frameIntervalMs = 1000 / 30;
 
   private options: MixerOptions;
+
+  private readonly handleVisibilityChange = () => {
+    if (typeof document === 'undefined') {
+      return;
+    }
+
+    this.isVisibilityPaused = document.visibilityState === 'hidden';
+
+    if (this.isVisibilityPaused && this.rafId) {
+      cancelAnimationFrame(this.rafId);
+      this.rafId = null;
+      return;
+    }
+
+    if (!this.isVisibilityPaused) {
+      this.requestNextFrame();
+    }
+  };
 
   constructor(options: MixerOptions) {
     this.options = options;
@@ -80,9 +104,15 @@ export class VideoStreamMixer {
       this.prepareVideoElement(this.options.secondStream);
     }
 
-    this.scheduleNextFrame = true;
-    this.computeFrame();
-    this.videoStream = canvas.captureStream(60);
+    this.isLoopEnabled = true;
+    this.isVisibilityPaused = typeof document !== 'undefined' && document.visibilityState === 'hidden';
+    this.lastFrameTimestamp = 0;
+    this.requestNextFrame();
+    this.videoStream = canvas.captureStream(30);
+
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', this.handleVisibilityChange);
+    }
   }
 
   private prepareVideoElement(streamConfig: StreamConfig) {
@@ -99,10 +129,40 @@ export class VideoStreamMixer {
     }
   }
 
-  private computeFrame = () => {
+  private requestNextFrame() {
+    if (!this.isLoopEnabled || this.isVisibilityPaused || this.rafId !== null) {
+      return;
+    }
+
+    this.rafId = requestAnimationFrame(this.computeFrame);
+  }
+
+  private computeFrame = (timestamp?: number) => {
     if (!this.ctx || !this.canvas) {
       return;
     }
+
+    if (!this.isLoopEnabled) {
+      if (this.rafId) {
+        cancelAnimationFrame(this.rafId);
+        this.rafId = null;
+      }
+      return;
+    }
+
+    if (this.isVisibilityPaused) {
+      this.rafId = null;
+      return;
+    }
+
+    const now = typeof timestamp === 'number' ? timestamp : performance.now();
+    if (now - this.lastFrameTimestamp < this.frameIntervalMs) {
+      this.rafId = null;
+      this.requestNextFrame();
+      return;
+    }
+
+    this.lastFrameTimestamp = now;
 
     const { firstStream, secondStream, sizes } = this.options;
     const firstVideo = firstStream.videoElement;
@@ -122,9 +182,8 @@ export class VideoStreamMixer {
       this.ctx.drawImage(secondVideo, secondLeft, secondTop, secondWidth, secondHeight);
     }
 
-    if (this.scheduleNextFrame) {
-      this.rafId = requestAnimationFrame(this.computeFrame);
-    }
+    this.rafId = null;
+    this.requestNextFrame();
   };
 
   getVideoStream() {
@@ -132,15 +191,19 @@ export class VideoStreamMixer {
   }
 
   stop() {
-    this.scheduleNextFrame = false;
+    this.isLoopEnabled = false;
     if (this.rafId) {
       cancelAnimationFrame(this.rafId);
       this.rafId = null;
     }
+    this.isVisibilityPaused = false;
   }
 
   destroy() {
     this.stop();
+    if (typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', this.handleVisibilityChange);
+    }
     if (this.canvas) {
       this.canvas.remove();
       this.canvas = null;

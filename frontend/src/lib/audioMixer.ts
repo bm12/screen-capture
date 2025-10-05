@@ -54,9 +54,9 @@ export class AudioStreamMixer {
 
   private systemGain: GainNode | null = null;
 
-  private scheduleNextRaf = false;
+  private volumeIntervalId: number | null = null;
 
-  private rafId: number | null = null;
+  private readonly volumeCheckIntervalMs = 150;
 
   private options: AudioMixerOptions;
 
@@ -94,26 +94,43 @@ export class AudioStreamMixer {
       this.analyser = getAnalyser(this.context);
       micSource.connect(this.analyser);
 
-      this.scheduleNextRaf = true;
-      const listen = () => {
-        if (!this.context || !this.analyser || !this.systemGain) {
-          return;
-        }
-        const average = getAverageVolume(this.analyser);
-
-        if (average > microAverageVolume) {
-          this.systemGain.gain.setTargetAtTime(0.32, this.context.currentTime, 0.05);
-        } else {
-          this.systemGain.gain.setTargetAtTime(1, this.context.currentTime, 0.05);
-        }
-
-        if (this.scheduleNextRaf) {
-          this.rafId = requestAnimationFrame(listen);
-        }
-      };
-
-      listen();
+      this.startVolumeMonitoring(microAverageVolume);
     }
+  }
+
+  private startVolumeMonitoring(microAverageVolume: number) {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    if (this.volumeIntervalId !== null) {
+      window.clearInterval(this.volumeIntervalId);
+    }
+
+    const checkVolume = () => {
+      if (!this.context || !this.analyser || !this.systemGain) {
+        return;
+      }
+
+      const hasActiveMic = this.options.userAudioStream
+        ?.getAudioTracks()
+        .some((track) => track.enabled && track.readyState === 'live');
+
+      if (!hasActiveMic) {
+        this.systemGain.gain.setTargetAtTime(1, this.context.currentTime, 0.05);
+        return;
+      }
+
+      const average = getAverageVolume(this.analyser);
+      if (average > microAverageVolume) {
+        this.systemGain.gain.setTargetAtTime(0.32, this.context.currentTime, 0.05);
+      } else {
+        this.systemGain.gain.setTargetAtTime(1, this.context.currentTime, 0.05);
+      }
+    };
+
+    checkVolume();
+    this.volumeIntervalId = window.setInterval(checkVolume, this.volumeCheckIntervalMs);
   }
 
   getAudioStream() {
@@ -121,10 +138,9 @@ export class AudioStreamMixer {
   }
 
   stop() {
-    this.scheduleNextRaf = false;
-    if (this.rafId) {
-      cancelAnimationFrame(this.rafId);
-      this.rafId = null;
+    if (typeof window !== 'undefined' && this.volumeIntervalId !== null) {
+      window.clearInterval(this.volumeIntervalId);
+      this.volumeIntervalId = null;
     }
   }
 

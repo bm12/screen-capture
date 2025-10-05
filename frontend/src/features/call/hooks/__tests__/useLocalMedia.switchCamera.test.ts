@@ -109,8 +109,7 @@ describe('useLocalMedia.switchCamera', () => {
         value: originalMediaDevices,
       });
     } else {
-      // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
-      delete (navigator as { mediaDevices?: MediaDevices }).mediaDevices;
+      Reflect.deleteProperty(navigator as { mediaDevices?: MediaDevices }, 'mediaDevices');
     }
     vi.restoreAllMocks();
   });
