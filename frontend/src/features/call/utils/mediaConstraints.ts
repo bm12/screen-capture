@@ -49,15 +49,19 @@ const isMobileDevice = () => {
 
 type NetworkQuality = 'slow' | 'unknown' | 'fast';
 
+type NavigatorConnection = Navigator & {
+  connection?: {
+    effectiveType?: string;
+    saveData?: boolean;
+  };
+};
+
 const getNetworkQuality = (): NetworkQuality => {
   if (typeof navigator === 'undefined') {
     return 'unknown';
   }
 
-  const connection =
-    (navigator as Navigator & { connection?: unknown }).connection as
-      | (NetworkInformation & { saveData?: boolean })
-      | undefined;
+  const connection = (navigator as NavigatorConnection).connection;
 
   if (!connection) {
     return 'unknown';
